@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <sstream>
 
@@ -32,6 +33,11 @@ using namespace proto;
 namespace {
 Desktop* g_self = nullptr;
 volatile sig_atomic_t g_term = 0;
+long now_us() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000000L + ts.tv_nsec / 1000L;
+}
 void on_term(int) { g_term = 1; }
 }  // namespace
 
@@ -80,6 +86,19 @@ bool Desktop::init(const Options& opt) {
     }
     wall_blur_ = wall_;
     box_blur(wall_blur_, 12, 2);
+    // wallpaper + a soft scrim under the dock, computed once (not every frame)
+    base_ = wall_;
+    {
+        const int sh = std::min(H_, 240);
+        for (int i = 0; i < sh; ++i) {
+            const int y = H_ - sh + i;
+            const float a = static_cast<float>(i * 130 / sh) / 255.0f;
+            for (int x = 0; x < W_; ++x) {
+                u32& p = base_.px[static_cast<std::size_t>(y) * W_ + x];
+                p = mix(p, 0xFF05070Au, a) | 0xFF000000u;
+            }
+        }
+    }
 
     if (!tasks_.load(opt_.datadir + "/apps", opt_.etcdir + "/services.d")) {
         std::fprintf(stderr, "difiw-desktop: no applications registered in %s/apps\n", opt_.datadir.c_str());
@@ -185,25 +204,42 @@ void Desktop::blit_region(int x0, int y0, int w, int h) {
     x0 = std::max(0, x0); y0 = std::max(0, y0);
     w = std::min(w, W_ - x0); h = std::min(h, H_ - y0);
     if (w <= 0 || h <= 0) return;
-    const bool fast = fb_.bpp == 32 && fb_.ro == 16 && fb_.go == 8 && fb_.bo == 0;
+    const bool fast32 = fb_.bpp == 32 && fb_.ro == 16 && fb_.go == 8 && fb_.bo == 0;
+    const bool fast24 = fb_.bpp == 24 && fb_.ro == 16 && fb_.go == 8 && fb_.bo == 0;
+    // The row is converted in ordinary memory and copied with one wide memcpy: many small stores straight into
+    // video memory are very slow inside a virtual machine.
+    static std::vector<unsigned char> tmp;
+    const std::size_t bytes = static_cast<std::size_t>(w) * static_cast<std::size_t>(fb_.bpp / 8);
+    if (tmp.size() < bytes) tmp.resize(bytes + 16);
     for (int y = y0; y < y0 + h; ++y) {
         const u32* src = back_.px + static_cast<std::size_t>(y) * back_.stride + x0;
         unsigned char* dst = fb_.mem + static_cast<std::size_t>(y) * fb_.stride + static_cast<std::size_t>(x0) * static_cast<std::size_t>(fb_.bpp / 8);
-        if (fast) {
-            std::memcpy(dst, src, static_cast<std::size_t>(w) * 4);
+        if (fast32) {
+            std::memcpy(dst, src, bytes);
+            continue;
+        }
+        unsigned char* t = tmp.data();
+        if (fast24) {
+            for (int x = 0; x < w; ++x) {
+                const u32 p = src[x];
+                t[x * 3] = static_cast<unsigned char>(p);
+                t[x * 3 + 1] = static_cast<unsigned char>(p >> 8);
+                t[x * 3 + 2] = static_cast<unsigned char>(p >> 16);
+            }
         } else if (fb_.bpp == 24) {
             for (int x = 0; x < w; ++x) {
-                dst[x * 3 + fb_.ro / 8] = static_cast<unsigned char>(src[x] >> 16);
-                dst[x * 3 + fb_.go / 8] = static_cast<unsigned char>(src[x] >> 8);
-                dst[x * 3 + fb_.bo / 8] = static_cast<unsigned char>(src[x]);
+                t[x * 3 + fb_.ro / 8] = static_cast<unsigned char>(src[x] >> 16);
+                t[x * 3 + fb_.go / 8] = static_cast<unsigned char>(src[x] >> 8);
+                t[x * 3 + fb_.bo / 8] = static_cast<unsigned char>(src[x]);
             }
         } else if (fb_.bpp == 16) {
             for (int x = 0; x < w; ++x)
-                reinterpret_cast<std::uint16_t*>(dst)[x] = static_cast<std::uint16_t>(pack_px(this, src[x], 16, fb_.ro, fb_.go, fb_.bo, fb_.rl, fb_.gl, fb_.bl));
+                reinterpret_cast<std::uint16_t*>(t)[x] = static_cast<std::uint16_t>(pack_px(this, src[x], 16, fb_.ro, fb_.go, fb_.bo, fb_.rl, fb_.gl, fb_.bl));
         } else {
             for (int x = 0; x < w; ++x)
-                reinterpret_cast<std::uint32_t*>(dst)[x] = pack_px(this, src[x], 32, fb_.ro, fb_.go, fb_.bo, fb_.rl, fb_.gl, fb_.bl);
+                reinterpret_cast<std::uint32_t*>(t)[x] = pack_px(this, src[x], 32, fb_.ro, fb_.go, fb_.bo, fb_.rl, fb_.gl, fb_.bl);
         }
+        std::memcpy(dst, t, bytes);
     }
 }
 
@@ -235,8 +271,22 @@ void Desktop::draw_cursor() {
         }
 }
 
+// Copies only what changed since the previous frame to the framebuffer. Writing to video memory is by far the
+// most expensive step in a virtual machine, so a still desktop costs nothing and small animations stay small.
 void Desktop::present() {
-    blit_region(0, 0, W_, H_);
+    if (!fb_.mem) return;
+    const std::size_t n = static_cast<std::size_t>(W_) * static_cast<std::size_t>(H_);
+    if (prev_.size() != n) prev_.assign(n, 0);
+    for (int y = 0; y < H_; ++y) {
+        const u32* a = back_.px + static_cast<std::size_t>(y) * back_.stride;
+        u32* b = prev_.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(W_);
+        if (std::memcmp(a, b, static_cast<std::size_t>(W_) * 4) == 0) continue;
+        int x0 = 0, x1 = W_ - 1;
+        while (a[x0] == b[x0]) ++x0;
+        while (a[x1] == b[x1]) --x1;
+        blit_region(x0, y, x1 - x0 + 1, 1);
+        std::memcpy(b + x0, a + x0, static_cast<std::size_t>(x1 - x0 + 1) * 4);
+    }
     draw_cursor();
 }
 
@@ -352,7 +402,8 @@ bool Desktop::attach_buffer(Window& w, int fd, int bw, int bh) {
     return true;
 }
 
-void Desktop::send_to_client(int fd, const Msg& m) { send_msg(fd, m); }
+// Never block the desktop on a slow application: when its queue is full the event is dropped.
+void Desktop::send_to_client(int fd, const Msg& m) { send_msg(fd, m, -1, MSG_DONTWAIT); }
 
 void Desktop::create_window(ClientConn& c, const Msg& m, int fd) {
     Msg r;
@@ -714,6 +765,10 @@ std::vector<std::string> Desktop::control(const std::string& line) {
     } else if (cmd == "mousedown" || cmd == "mouseup") {
         on_button(a.size() > 1 ? std::atoi(a[1].c_str()) : 1, cmd == "mousedown");
         out.push_back("ok");
+    } else if (cmd == "perf") {
+        out.push_back("windows_us=" + std::to_string(perf_win_us_) + " dock_us=" + std::to_string(perf_dock_us_) + " popups_us=" + std::to_string(perf_pop_us_));
+        out.push_back("render_us=" + std::to_string(perf_render_us_) + " present_us=" + std::to_string(perf_present_us_) +
+                      " windows=" + std::to_string(wins_.size()) + " fb=" + (fb_.mem ? "yes" : "no"));
     } else if (cmd == "move") {
         if (!need(3)) return out;
         on_pointer_move(std::atoi(a[1].c_str()), std::atoi(a[2].c_str()));
@@ -819,7 +874,7 @@ int Desktop::run() {
         for (const auto& c : clients_) pf.push_back({c.fd, POLLIN, 0});
         const std::size_t ndev0 = pf.size();
         for (const auto& d : devs_) pf.push_back({d.fd, POLLIN, 0});
-        const int timeout = (animating() || dirty_) ? 16 : 250;
+        const int timeout = dirty_ ? 4 : (animating() ? 16 : 250);  // idle: wake up rarely
         poll(pf.data(), static_cast<nfds_t>(pf.size()), timeout);
 
         if (pf[0].revents & POLLIN) accept_clients();
@@ -883,7 +938,18 @@ int Desktop::run() {
         struct tm tm;
         localtime_r(&tt, &tm);
         if (tm.tm_min != last_min) { last_min = tm.tm_min; dirty_ = true; }
-        if (dirty_ || animating()) { dirty_ = false; render(); present(); }
+        // at most ~120 frames/s for input, ~30 frames/s for pure animation; the picture only costs time when it changes
+        if ((dirty_ && now - last_render_ms_ >= 8) || (animating() && now - last_render_ms_ >= 33)) {
+            dirty_ = false;
+            const long t0 = now_us();
+            render();
+            const long t1 = now_us();
+            present();
+            const long t2 = now_us();
+            perf_render_us_ = (perf_render_us_ * 7 + (t1 - t0)) / 8;
+            perf_present_us_ = (perf_present_us_ * 7 + (t2 - t1)) / 8;
+            last_render_ms_ = now_ms();
+        }
     }
     // shutting down: ask every app to leave, then force
     for (auto& i : tasks_.instances()) kill(i.pid, SIGTERM);

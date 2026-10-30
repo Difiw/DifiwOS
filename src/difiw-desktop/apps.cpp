@@ -95,7 +95,9 @@ struct App {
         while (!quit) {
             Event ev;
             const int wait = std::max(1, tick_ms() - static_cast<int>(mono_ms() - last_tick));
-            if (cl.next_event(ev, wait)) {
+            bool got = cl.next_event(ev, wait);
+            // handle everything that is already waiting, then redraw once (a burst of mouse moves costs one frame)
+            for (int guard = 0; got && guard < 256 && !quit; ++guard) {
                 switch (ev.kind) {
                     case Event::Disconnected: quit = true; break;
                     case Event::Close: on_close(); break;
@@ -105,6 +107,7 @@ struct App {
                     case Event::Key: if (ev.state != 0) key(ev); dirty = true; break;
                     default: break;
                 }
+                got = cl.next_event(ev, 0);
             }
             if (mono_ms() - last_tick >= tick_ms()) { last_tick = mono_ms(); tick(); dirty = true; }
             if (dirty && !quit) redraw();

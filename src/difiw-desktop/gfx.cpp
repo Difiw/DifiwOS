@@ -86,17 +86,34 @@ static int rr_cov(int px, int py, const Rect& r, int rad) {
     return static_cast<int>(c * 255.0f + 0.5f);
 }
 
+// Fills [x0,x1) of row y (clipped); blends when the color is translucent.
+static inline void span(Surface& s, int y, int x0, int x1, u32 c) {
+    if (y < s.clip.y || y >= s.clip.bottom()) return;
+    x0 = std::max(x0, s.clip.x);
+    x1 = std::min(x1, s.clip.right());
+    const int a = ca(c);
+    if (x0 >= x1 || a <= 0) return;
+    u32* row = s.px + static_cast<std::size_t>(y) * s.stride;
+    if (a >= 255) {
+        const u32 v = c | 0xFF000000u;
+        for (int x = x0; x < x1; ++x) row[x] = v;
+    } else {
+        for (int x = x0; x < x1; ++x) row[x] = over(row[x], c);
+    }
+}
+
 static void rrect_rows(Surface& s, Rect r, int rad, const std::function<u32(int)>* rowcol, u32 c) {
     rad = std::max(0, std::min(rad, std::min(r.w, r.h) / 2));
     const Rect vis = r.intersect(s.clip).intersect({0, 0, s.w, s.h});
     if (vis.empty()) return;
+    const int xl = r.x + rad, xr = r.right() - rad;
     for (int y = vis.y; y < vis.bottom(); ++y) {
         const u32 col = rowcol ? (*rowcol)(y) : c;
-        const bool band = y < r.y + rad || y >= r.bottom() - rad;
-        for (int x = vis.x; x < vis.right(); ++x) {
-            if (band || x < r.x + rad || x >= r.right() - rad) put(s, x, y, col, rr_cov(x, y, r, rad));
-            else put(s, x, y, col);
-        }
+        if (y >= r.y + rad && y < r.bottom() - rad) { span(s, y, vis.x, vis.right(), col); continue; }
+        // top / bottom rows: antialiased corners, straight middle part as one span
+        for (int x = vis.x; x < std::min(vis.right(), xl); ++x) put(s, x, y, col, rr_cov(x, y, r, rad));
+        span(s, y, std::max(vis.x, xl), std::min(vis.right(), xr), col);
+        for (int x = std::max(vis.x, xr); x < vis.right(); ++x) put(s, x, y, col, rr_cov(x, y, r, rad));
     }
 }
 
@@ -109,34 +126,46 @@ void rrect_gradient(Surface& s, Rect r, int radius, u32 top, u32 bottom) {
     rrect_rows(s, r, radius, &f, 0);
 }
 
-void rrect_outline(Surface& s, Rect r, int radius, int thick, u32 c) {
+// Visits only the pixels of a rounded outline (cost ~ perimeter, not area): fn(x, y, coverage 1..255).
+template <class F>
+static void outline_walk(Surface& s, Rect r, int radius, int thick, F&& fn) {
     radius = std::max(0, std::min(radius, std::min(r.w, r.h) / 2));
     const Rect inner = r.inset(thick);
     const int irad = std::max(0, radius - thick);
     const Rect vis = r.intersect(s.clip).intersect({0, 0, s.w, s.h});
+    const int cz = std::max(radius, thick);  // width of the corner zone
+    const int xl = r.x + cz, xr = r.right() - cz;
+    auto cov = [&](int x, int y) {
+        const int outer = rr_cov(x, y, r, radius);
+        const int in = inner.has(x, y) ? rr_cov(x, y, inner, irad) : 0;
+        return std::max(0, outer - in);
+    };
     for (int y = vis.y; y < vis.bottom(); ++y) {
-        const bool mid = y >= r.y + thick + radius && y < r.bottom() - thick - radius;
-        if (mid) {
-            for (int x = r.x; x < r.x + thick; ++x) put(s, x, y, c);
-            for (int x = r.right() - thick; x < r.right(); ++x) put(s, x, y, c);
-            continue;
-        }
-        for (int x = vis.x; x < vis.right(); ++x) {
-            const int outer = rr_cov(x, y, r, radius);
-            const int in = inner.has(x, y) ? rr_cov(x, y, inner, irad) : 0;
-            const int cov = std::max(0, outer - in);
-            if (cov > 0) put(s, x, y, c, cov);
+        const bool edge = y < r.y + thick || y >= r.bottom() - thick;
+        const bool band = y < r.y + cz || y >= r.bottom() - cz;
+        if (edge || band) {
+            for (int x = vis.x; x < std::min(vis.right(), xl); ++x) { const int c = cov(x, y); if (c > 0) fn(x, y, c); }
+            if (edge) { for (int x = std::max(vis.x, xl); x < std::min(vis.right(), xr); ++x) fn(x, y, 255); }
+            for (int x = std::max(vis.x, xr); x < vis.right(); ++x) { const int c = cov(x, y); if (c > 0) fn(x, y, c); }
+        } else {
+            for (int x = vis.x; x < std::min(vis.right(), r.x + thick); ++x) fn(x, y, 255);
+            for (int x = std::max(vis.x, r.right() - thick); x < vis.right(); ++x) fn(x, y, 255);
         }
     }
+}
+
+void rrect_outline(Surface& s, Rect r, int radius, int thick, u32 c) {
+    outline_walk(s, r, radius, thick, [&](int x, int y, int cov) { put(s, x, y, c, cov); });
 }
 
 void shadow(Surface& s, Rect r, int radius, int spread, int dy, u32 c) {
     if (spread <= 0) return;
     const int a = ca(c);
+    // one-pixel rings with a falling alpha: the same soft edge as stacked filled shapes at a fraction of the cost
     for (int i = spread; i >= 1; --i) {
         const float k = 1.0f - static_cast<float>(i) / static_cast<float>(spread + 1);
-        const int alpha = std::max(1, static_cast<int>(static_cast<float>(a) * k * k * 2.4f / static_cast<float>(spread)));
-        rrect(s, {r.x - i, r.y - i + dy, r.w + 2 * i, r.h + 2 * i}, radius + i, with_alpha(c, alpha));
+        const int alpha = std::max(1, static_cast<int>(static_cast<float>(a) * k * k * 0.62f));
+        rrect_outline(s, {r.x - i, r.y - i + dy, r.w + 2 * i, r.h + 2 * i}, radius + i, 1, with_alpha(c, alpha));
     }
 }
 
@@ -446,23 +475,11 @@ float ease_in_out(float t) {
 namespace dg {
 
 void rrect_outline_glow(Surface& s, Rect r, int radius, int thick, float phase, int alpha) {
-    radius = std::max(0, std::min(radius, std::min(r.w, r.h) / 2));
-    const Rect inner = r.inset(thick);
-    const int irad = std::max(0, radius - thick);
-    const Rect vis = r.intersect(s.clip).intersect({0, 0, s.w, s.h});
     const float cx = static_cast<float>(r.x) + static_cast<float>(r.w) / 2.0f, cy = static_cast<float>(r.y) + static_cast<float>(r.h) / 2.0f;
-    for (int y = vis.y; y < vis.bottom(); ++y) {
-        const bool mid = y >= r.y + thick + radius && y < r.bottom() - thick - radius;
-        for (int x = vis.x; x < vis.right(); ++x) {
-            if (mid && x >= r.x + thick && x < r.right() - thick) { x = r.right() - thick - 1; continue; }
-            const int outer = rr_cov(x, y, r, radius);
-            const int in = inner.has(x, y) ? rr_cov(x, y, inner, irad) : 0;
-            const int cov = std::max(0, outer - in);
-            if (cov <= 0) continue;
-            const float ang = std::atan2(static_cast<float>(y) + 0.5f - cy, static_cast<float>(x) + 0.5f - cx);
-            put(s, x, y, with_alpha(glow_color(ang / 6.2831853f + 0.5f + phase), alpha), cov);
-        }
-    }
+    outline_walk(s, r, radius, thick, [&](int x, int y, int cov) {
+        const float ang = std::atan2(static_cast<float>(y) + 0.5f - cy, static_cast<float>(x) + 0.5f - cx);
+        put(s, x, y, with_alpha(glow_color(ang / 6.2831853f + 0.5f + phase), alpha), cov);
+    });
 }
 
 }  // namespace dg

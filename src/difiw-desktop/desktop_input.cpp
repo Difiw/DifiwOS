@@ -99,11 +99,16 @@ Hit* Desktop::hit_at(int x, int y) {
 
 // ------------------------------------------------------------------------ pointer
 void Desktop::route_mouse_to_window(Window& w, int kind, int wheel) {
+    if (kind == 0) {  // pointer motion is coalesced: a busy app must not be flooded
+        const long now = now_ms();
+        if (now - last_move_send_ms_ < 10) return;
+        last_move_send_ms_ = now;
+    }
     const Rect c = content_of(w);
     Msg m;
     m.type = S_MOUSE;
     m.i[0] = w.id; m.i[1] = mx_ - c.x; m.i[2] = my_ - c.y; m.i[3] = buttons_; m.i[4] = kind; m.i[5] = wheel;
-    send_msg(w.client, m);
+    send_msg(w.client, m, -1, MSG_DONTWAIT);
 }
 
 void Desktop::on_pointer_move(int nx, int ny) {
@@ -232,7 +237,7 @@ void Desktop::send_key_to_focus(int code, int state, const std::string& text) {
     m.i[0] = w->id; m.i[1] = code; m.i[2] = state;
     m.i[3] = (shift_ ? 1 : 0) | (ctrl_ ? 2 : 0) | (alt_ ? 4 : 0);
     set_str(m, text.c_str());
-    send_msg(w->client, m);
+    send_msg(w->client, m, -1, MSG_DONTWAIT);
 }
 
 bool Desktop::handle_popup_key(int code, int state, const std::string& text) {
@@ -278,6 +283,7 @@ void Desktop::on_key(int code, int state) {
             return;
         default: break;
     }
+    if (state == 1 && code == KEY_F12) { show_perf_ = !show_perf_; dirty_ = true; return; }
     if (down && alt_ && code == KEY_TAB) { focus_next(); return; }
     if (down && alt_ && code == KEY_F4) { if (Window* w = win(focus_)) request_close_window(*w); return; }
     const std::string text = down ? key_text(code) : "";

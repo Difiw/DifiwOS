@@ -188,6 +188,12 @@ private:
     std::string toast_;
     long toast_until_ = 0;
     float content_alpha_ = 1.0f;
+    // performance: last presented frame (to blit only what changed), cached wallpaper+scrim, timings
+    std::vector<u32> prev_;
+    Image base_;
+    long last_render_ms_ = 0, last_move_send_ms_ = 0;
+    long perf_render_us_ = 0, perf_present_us_ = 0, perf_win_us_ = 0, perf_dock_us_ = 0, perf_pop_us_ = 0;
+    bool show_perf_ = false;   // F12: frame timings overlay
 
     void note_toast(const std::string& text);
     void build_dock_items();

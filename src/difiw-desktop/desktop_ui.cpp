@@ -1044,14 +1044,16 @@ void Desktop::render() {
     frame_ms_ = now_ms();
     hits_.clear();
     back_.reset_clip();
-    std::memcpy(back_.px, wall_.px.data(), wall_.px.size() * 4);
-    // soft scrim under the dock keeps the panel readable on any wallpaper
-    const int sh = S(160);
-    for (int i = 0; i < sh; ++i) fill(back_, {0, H_ - sh + i, W_, 1}, with_alpha(0xFF05070Au, i * 130 / sh));
-    draw_windows();
-    draw_dock();
-    draw_popups();
+    std::memcpy(back_.px, base_.px.data(), base_.px.size() * 4);  // wallpaper + scrim, prepared once
+struct timespec t0, t1, t2, t3;    clock_gettime(CLOCK_MONOTONIC, &t0);    draw_windows();    clock_gettime(CLOCK_MONOTONIC, &t1);    draw_dock();    clock_gettime(CLOCK_MONOTONIC, &t2);    draw_popups();    clock_gettime(CLOCK_MONOTONIC, &t3);    auto us = [](const timespec& a, const timespec& b) { return (b.tv_sec - a.tv_sec) * 1000000L + (b.tv_nsec - a.tv_nsec) / 1000L; };    perf_win_us_ = us(t0, t1); perf_dock_us_ = us(t1, t2); perf_pop_us_ = us(t2, t3);
     draw_toast();
+    if (show_perf_) {
+        char b[96];
+        std::snprintf(b, sizeof b, "render %.1f ms  video write %.1f ms  windows %d", static_cast<double>(perf_render_us_) / 1000.0, static_cast<double>(perf_present_us_) / 1000.0, static_cast<int>(wins_.size()));
+        const Rect r = {S(8), S(8), text_width(b, 1) + S(20), S(26)};
+        rrect(back_, r, S(8), 0xE0141925u);
+        draw_text(back_, r.x + S(10), r.y + (r.h - font_h()) / 2, b, kAccentTeal, 1);
+    }
     if (!hover_.empty() && popups_.empty()) draw_tip();
     else if (!hover_.empty()) draw_tip();
 }

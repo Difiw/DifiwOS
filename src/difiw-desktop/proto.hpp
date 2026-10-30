@@ -53,7 +53,7 @@ inline void set_str(Msg& m, const char* src) {
 }
 
 // Sends one message, optionally with a file descriptor. Returns true on success.
-inline bool send_msg(int sock, const Msg& m, int pass_fd = -1) {
+inline bool send_msg(int sock, const Msg& m, int pass_fd = -1, int flags = 0) {
     struct iovec iov = {const_cast<Msg*>(&m), sizeof m};
     char ctl[CMSG_SPACE(sizeof(int))];
     std::memset(ctl, 0, sizeof ctl);
@@ -71,7 +71,7 @@ inline bool send_msg(int sock, const Msg& m, int pass_fd = -1) {
         std::memcpy(CMSG_DATA(c), &pass_fd, sizeof(int));
     }
     for (;;) {
-        const ssize_t n = sendmsg(sock, &mh, MSG_NOSIGNAL);
+        const ssize_t n = sendmsg(sock, &mh, MSG_NOSIGNAL | flags);
         if (n == static_cast<ssize_t>(sizeof m)) return true;
         if (n < 0 && errno == EINTR) continue;
         return false;
