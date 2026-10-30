@@ -162,6 +162,10 @@ Buildroot не хранится в репозитории: скачиваетс�
 - **`Temporary failure in name resolution`** при загрузке исходников — временный сбой DNS в WSL; повторите `./scripts/build.sh` (продолжит с места остановки). `wsl --shutdown` и повтор помогают при постоянных сбоях.
 - **`grub-mkrescue: not found` / `xorriso` / `mformat`** — установите `grub-pc-bin grub-common xorriso mtools`.
 - **Медленная сборка / ошибки прав** — проект собирается в `~/difiw-build`, а не на `/mnt/*`.
+- **VirtualBox: после выбора пункта GRUB чёрный экран, мигает курсор, ничего не появляется** — VM создана
+  с типом `Other/Unknown` (32-битный режим). Ядро Difiw OS — x86_64. Настройки → Общие → Основные → Тип
+  **Linux**, версия **Other Linux (64-bit)**. Проверка: `VBoxManage showvminfo "<имя>" --machinereadable | findstr longmode`
+  должно быть `longmode="on"`.
 - **VirtualBox показывает `no bootable medium`** — проверьте, что ISO подключён и EFI отключён.
 - **VirtualBox не стартует при включённом Hyper-V/WSL2** — используйте VirtualBox 7+, он работает поверх Hyper-V; при VERR_NEM_* обновите VirtualBox.
 - Чистая пересборка: `./scripts/clean.sh && ./scripts/build.sh`.
