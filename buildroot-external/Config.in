@@ -1,0 +1,1 @@
+source "$BR2_EXTERNAL_DIFIW_PATH/package/difiw-shell/Config.in"

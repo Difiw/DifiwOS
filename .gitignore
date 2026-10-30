@@ -1,0 +1,19 @@
+# Build trees and generated output
+output/
+dl/
+build/
+*.o
+*.log
+*.part
+
+# Large artifacts stay out of Git (keep checksums and reports)
+artifacts/*.iso
+artifacts/legal-info/
+artifacts/qemu-serial.log
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store

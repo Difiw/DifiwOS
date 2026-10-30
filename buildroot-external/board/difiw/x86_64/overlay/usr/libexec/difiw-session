@@ -1,0 +1,19 @@
+#!/bin/sh
+# One interactive session: Difiw Shell, with /bin/sh as an explicit fallback.
+# Started (and respawned) by BusyBox init on tty1 / ttyS0 as root, no password.
+# SPDX-License-Identifier: MIT
+
+export HOME=/root USER=root LOGNAME=root
+export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+[ -n "$TERM" ] || export TERM=linux
+cd /root 2>/dev/null || cd /
+
+if [ -x /usr/bin/difiw-shell ]; then
+    /usr/bin/difiw-shell
+    rc=$?
+    [ "$rc" -eq 0 ] && exit 0
+    echo "difiw-session: Difiw Shell stopped abnormally (status $rc); starting /bin/sh"
+else
+    echo "difiw-session: /usr/bin/difiw-shell not found or not executable; starting /bin/sh"
+fi
+exec /bin/sh

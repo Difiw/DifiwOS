@@ -1,0 +1,9 @@
+config BR2_PACKAGE_DIFIW_SHELL
+	bool "difiw-shell"
+	depends on BR2_INSTALL_LIBSTDCPP
+	help
+	  Difiw Shell - the interactive shell of Difiw OS (C++17,
+	  linked statically against musl).
+
+comment "difiw-shell needs a toolchain w/ C++"
+	depends on !BR2_INSTALL_LIBSTDCPP

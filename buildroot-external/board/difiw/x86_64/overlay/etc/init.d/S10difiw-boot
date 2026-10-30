@@ -1,0 +1,31 @@
+#!/bin/sh
+# Difiw OS boot tasks: optional data disk and serial console session.
+# SPDX-License-Identifier: MIT
+
+case "$1" in
+start)
+    mkdir -p /root /data
+    chmod 0700 /root
+
+    # Optional persistence: an ext4 disk labelled DIFIWDATA is mounted on /data.
+    dev="$(findfs LABEL=DIFIWDATA 2>/dev/null)" || dev=""
+    if [ -n "$dev" ]; then
+        if mount -t ext4 -o rw,noatime "$dev" /data; then
+            echo "Difiw: data disk $dev mounted on /data"
+        else
+            echo "Difiw: data disk $dev found but could not be mounted as ext4"
+        fi
+    fi
+
+    # Serial session only if ttyS0 is a real UART (not "uart:unknown").
+    if grep -Eq '^0: uart:(8250|16450|16550|16550A|16650|16750|16850|16950|NS16550A|XScale)' /proc/tty/driver/serial 2>/dev/null; then
+        if ! grep -q '^ttyS0:' /etc/inittab; then
+            echo 'ttyS0::respawn:/usr/libexec/difiw-session' >> /etc/inittab
+            kill -HUP 1
+        fi
+    fi
+    ;;
+stop|restart|reload) ;;
+*) echo "Usage: $0 {start|stop}"; exit 1 ;;
+esac
+exit 0
