@@ -5,6 +5,10 @@
 
 set -euo pipefail
 
+# WSL appends Windows directories (with spaces) to PATH; Buildroot rejects that.
+PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '^/mnt/' | paste -sd: -)"
+export PATH
+
 # Project root, derived from this file's location (never a hardcoded path).
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../versions.env

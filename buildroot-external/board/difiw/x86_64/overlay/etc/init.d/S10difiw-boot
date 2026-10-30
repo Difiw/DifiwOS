@@ -17,8 +17,9 @@ start)
         fi
     fi
 
-    # Serial session only if ttyS0 is a real UART (not "uart:unknown").
-    if grep -Eq '^0: uart:(8250|16450|16550|16550A|16650|16750|16850|16950|NS16550A|XScale)' /proc/tty/driver/serial 2>/dev/null; then
+    # Serial session only if ttyS0 is a real UART (sysfs type 0 = no port).
+    stype="$(cat /sys/class/tty/ttyS0/type 2>/dev/null)" || stype=0
+    if [ -n "$stype" ] && [ "$stype" != "0" ] && [ -c /dev/ttyS0 ]; then
         if ! grep -q '^ttyS0:' /etc/inittab; then
             echo 'ttyS0::respawn:/usr/libexec/difiw-session' >> /etc/inittab
             kill -HUP 1

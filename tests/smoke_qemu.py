@@ -16,6 +16,7 @@ import threading
 import time
 
 PROMPT = "difiw:/root> "
+ANY_PROMPT = re.compile(r"difiw:/[^\s>]*> ")
 
 
 class Vm:
@@ -72,8 +73,16 @@ class Vm:
         self.p.stdin.flush()
         # wait for the echoed command, then for the next prompt
         pos = self.wait_for(cmd, timeout, start)
-        end = self.wait_for(PROMPT, timeout, pos)
-        return self.buf[pos:end - len(PROMPT)]
+        deadline = time.time() + timeout
+        while True:
+            m = ANY_PROMPT.search(self.buf, pos)
+            if m:
+                return self.buf[pos:m.start()]
+            if time.time() > deadline or not self._drain(0.5):
+                m = ANY_PROMPT.search(self.buf, pos)
+                if m:
+                    return self.buf[pos:m.start()]
+                raise TimeoutError(f"no prompt after {cmd!r}")
 
     def wait_exit(self, timeout=40):
         end = time.time() + timeout
@@ -103,8 +112,7 @@ def check(name, cond, detail=""):
 def boot(iso, log, extra=None):
     vm = Vm(iso, extra, log)
     vm.wait_for("GNU GRUB", 90)
-    vm.wait_for("Linux version", 90)
-    vm.wait_for(PROMPT, 120)
+    vm.wait_for(PROMPT, 150)
     return vm
 
 
@@ -117,7 +125,7 @@ def main():
             log.write("\n===== PHASE 1: boot + commands + poweroff =====\n")
             vm = boot(iso, log)
             check("GRUB started", "GNU GRUB" in vm.buf)
-            check("kernel started", "Linux version" in vm.buf)
+            check("kernel started (banner shows -difiw kernel)", re.search(r"Kernel Linux \S+-difiw", vm.buf) is not None)
             check("no kernel panic", "Kernel panic" not in vm.buf, vm.buf[-300:])
             check("Difiw Shell banner", "Difiw OS 0.1.0 Core" in vm.buf)
             out = vm.run("help");           check("help", "poweroff" in out and "reboot" in out, out)
@@ -131,13 +139,10 @@ def main():
             out = vm.run("ls work");        check("ls", "a.txt" in out, out)
             out = vm.run("size work");      check("size", "work: " in out and "in 1 files" in out, out)
             out = vm.run("cd work");        check("cd", "No such" not in out, out)
-            vm.p.stdin.write(b"pwd\r"); vm.p.stdin.flush()
-            vm.wait_for("difiw:/root/work> ", 20)
-            check("prompt follows cd", True)
-            vm.p.stdin.write(b"cd /\r"); vm.p.stdin.flush()
-            vm.wait_for("difiw:/> ", 20)
-            vm.p.stdin.write(b"cd /root\r"); vm.p.stdin.flush()
-            vm.wait_for(PROMPT, 20)
+            check("prompt follows cd", "difiw:/root/work> " in vm.buf)
+            vm.run("cd /")
+            check("prompt shows root dir", "difiw:/> " in vm.buf)
+            vm.run("cd /root")
             out = vm.run("read /etc/os-release"); check("read", 'NAME="Difiw OS"' in out, out)
             out = vm.run("read nothere");   check("read missing file is an error", "No such file" in out, out)
             out = vm.run("del work");       check("del refuses non-empty dir", "not empty" in out, out)

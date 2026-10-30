@@ -633,11 +633,12 @@ void print_banner() {
     struct sysinfo si;
     const bool ok = uname(&u) == 0;
     std::printf("\n");
-    std::printf("  ____  _  __ _        ___  ____\n");
-    std::printf(" |  _ \\(_)/ _(_)_    _/ _ \\/ ___|\n");
-    std::printf(" | | | | | |_| \\ \\ /\\ / | | \\___ \\\n");
-    std::printf(" | |_| | |  _| |\\ V  V /| |_| |___) |\n");
-    std::printf(" |____/|_|_| |_| \\_/\\_/  \\___/|____/\n");
+    std::fputs(R"( ____  _  __ _
+|  _ \(_)/ _(_)_      __
+| | | | | |_| \ \ /\ / /
+| |_| | |  _| |\ V  V /
+|____/|_|_| |_| \_/\_/
+)", stdout);
     std::printf("\n Difiw OS %s %s\n", kVersion, kEdition);
     if (ok) std::printf(" Kernel %s %s | host %s\n", u.sysname, u.release, u.nodename);
     if (sysinfo(&si) == 0) {

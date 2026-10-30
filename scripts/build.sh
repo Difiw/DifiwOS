@@ -16,8 +16,12 @@ log "building with $JOBS parallel jobs; full log: $LOG"
 log "first build takes a long time (toolchain + kernel); later runs are incremental"
 
 # Overlay, post-build and post-image steps are re-run by Buildroot on every make.
+set +e
 make -C "$BR_DIR" O="$BR_OUT" BR2_EXTERNAL="$MIRROR/buildroot-external" BR2_DL_DIR="$BR_DL" \
     -j"$JOBS" 2>&1 | tee "$LOG"
+rc="${PIPESTATUS[0]}"
+set -e
+[ "$rc" -eq 0 ] || die "Buildroot make failed with status $rc (see $LOG)"
 
 ISO="$BR_OUT/images/$ISO_NAME"
 [ -s "$ISO" ] || die "ISO was not produced: $ISO"

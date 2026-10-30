@@ -40,7 +40,7 @@ if [ -s "$ISO" ]; then
     ( cd "$ARTIFACTS" && sha256sum --check --status SHA256SUMS ) && ok "SHA256SUMS matches" || bad "SHA256SUMS mismatch"
     listing="$(xorriso -indev "$ISO" -find 2>/dev/null || true)"
     for f in /boot/bzImage /boot/rootfs.cpio.gz /boot/grub/grub.cfg; do
-        grep -q "'$f'" <<<"$listing" && ok "ISO contains $f" || bad "ISO lacks $f"
+        grep -q "'\.$f'" <<<"$listing" && ok "ISO contains $f" || bad "ISO lacks $f"
     done
     xorriso -indev "$ISO" -report_el_torito plain 2>/dev/null | grep -q 'El Torito' \
         && ok "El Torito boot record present" || bad "no El Torito boot record"
