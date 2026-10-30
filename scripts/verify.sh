@@ -68,6 +68,12 @@ if [ "${1:-}" != "--no-qemu" ]; then
     echo "-- QEMU graphical shell test (screen, mouse, keyboard, save, terminal)"
     # not -I: the test imports its sibling smoke_qemu.py
     python3 "$PROJECT_ROOT/tests/gui_qemu.py" "$ISO" "$ARTIFACTS/qemu-gui-serial.log" "$T/shots" && ok "QEMU GUI test" || bad "QEMU GUI test"
+    echo "-- QEMU desktop test (scenarios of the desktop task: panel, D menu, tasks, windows, isolation, animations, power)"
+    python3 "$PROJECT_ROOT/tests/desktop_qemu.py" "$ISO" "$ARTIFACTS/qemu-desktop-serial.log" "$T/shots" && ok "QEMU desktop test" || bad "QEMU desktop test"
+    echo "-- QEMU desktop variants (800x600, autostart at boot, terminal leaves the desktop)"
+    python3 "$PROJECT_ROOT/tests/desktop_variants.py" "$ISO" "$ARTIFACTS/qemu-variants-serial.log" "$T/shots" && ok "QEMU desktop variants" || bad "QEMU desktop variants"
+    mkdir -p "$ARTIFACTS/screenshots"
+    for f in "$T"/shots/*.ppm; do python3 "$PROJECT_ROOT/scripts/ppm2png.py" "$f" "$ARTIFACTS/screenshots/$(basename "$f" .ppm).png"; done
 fi
 
 echo

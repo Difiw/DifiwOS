@@ -1,0 +1,10 @@
+id=monitor
+name=Monitor
+name_ru=Монитор
+category=utility
+icon=monitor
+exec=/usr/bin/difiw-apps
+args=monitor
+uid=20004
+perms=
+hidden=0

@@ -1,0 +1,10 @@
+id=worker
+name=Background worker
+name_ru=Фоновый воркер
+category=test
+icon=gear
+exec=/usr/bin/difiw-apps
+args=worker
+uid=20006
+perms=
+hidden=1

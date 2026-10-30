@@ -1,0 +1,10 @@
+id=calc
+name=Calculator
+name_ru=Калькулятор
+category=utility
+icon=calc
+exec=/usr/bin/difiw-apps
+args=calc
+uid=20002
+perms=
+hidden=0

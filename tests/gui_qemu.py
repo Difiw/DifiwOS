@@ -99,12 +99,12 @@ def main():
             vm = sq.Vm(iso, ["-vga", "std", "-qmp", f"unix:{sock},server,nowait",
                              "-device", "qemu-xhci", "-device", "usb-tablet", "-device", "usb-kbd"], log)
             vm.wait_for(sq.PROMPT, 150)
-            sq.check("text terminal is the default after boot", "Difiw OS 0.3.0 Core" in vm.buf)
+            sq.check("text terminal is the default after boot", "Difiw OS 0.4.0 Core" in vm.buf)
             out = vm.run("terminal")
             sq.check("terminal command in text mode", "already in the text terminal" in out, out)
             qmp = Qmp(sock)
 
-            vm.p.stdin.write(b"screen\r"); vm.p.stdin.flush()
+            vm.p.stdin.write(b"screen --simple\r"); vm.p.stdin.flush()
             ok = False
             img = None
             for _ in range(40):  # up to ~20 s
@@ -115,7 +115,7 @@ def main():
                 if img[0] >= 640 and near(pixel(img, 700, 3), (42, 48, 66)):
                     ok = True
                     break
-            sq.check("screen starts the graphical shell (title bar visible)", ok, str(img and (img[0], img[1])))
+            sq.check("screen --simple starts the graphical shell (title bar visible)", ok, str(img and (img[0], img[1])))
             sq.check("graphics mode is 1024x768", img is not None and (img[0], img[1]) == (1024, 768), str(img and (img[0], img[1])))
 
             # mouse: click "Новый файл" (Files tab: buttons row at y ~ 87)
@@ -154,7 +154,7 @@ def main():
             sq.check("folder created from the GUI terminal exists", "folder1" in out, out)
 
             # `screen` again, then leave through the 'Консоль' button
-            vm.p.stdin.write(b"screen\r"); vm.p.stdin.flush()
+            vm.p.stdin.write(b"screen --simple\r"); vm.p.stdin.flush()
             time.sleep(6)
             qmp.click(718, 20)  # "Консоль" button in the top bar (approx.)
             try:

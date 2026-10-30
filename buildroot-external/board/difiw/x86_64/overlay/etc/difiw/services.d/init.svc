@@ -1,0 +1,4 @@
+name=init
+desc=System init (PID 1)
+match=init
+critical=1

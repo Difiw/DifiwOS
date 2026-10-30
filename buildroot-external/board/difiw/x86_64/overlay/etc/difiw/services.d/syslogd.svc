@@ -1,0 +1,4 @@
+name=syslogd
+desc=System log daemon
+match=syslogd
+critical=1

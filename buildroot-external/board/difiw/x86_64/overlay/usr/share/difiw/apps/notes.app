@@ -1,0 +1,10 @@
+id=notes
+name=Notes
+name_ru=Заметки
+category=work
+icon=notes
+exec=/usr/bin/difiw-apps
+args=notes
+uid=20001
+perms=
+hidden=0

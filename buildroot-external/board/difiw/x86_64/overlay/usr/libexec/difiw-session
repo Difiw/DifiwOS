@@ -11,6 +11,12 @@ cd /root 2>/dev/null || cd /
 # Cyrillic font + Alt+Shift keyboard toggle on the VGA console (no-op on serial).
 /usr/libexec/difiw-console
 
+# Optional autostart of the desktop on tty1 (kernel option difiw.desktop=1), once per boot.
+if [ "$(tty 2>/dev/null)" = "/dev/tty1" ] && grep -q "difiw.desktop=1" /proc/cmdline 2>/dev/null && [ ! -e /run/difiw-desktop-started ] && [ -x /usr/bin/difiw-desktop ]; then
+    : > /run/difiw-desktop-started
+    /usr/bin/difiw-desktop
+fi
+
 if [ -x /usr/bin/difiw-shell ]; then
     /usr/bin/difiw-shell
     rc=$?

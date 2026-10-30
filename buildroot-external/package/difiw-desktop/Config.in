@@ -1,0 +1,12 @@
+config BR2_PACKAGE_DIFIW_DESKTOP
+	bool "difiw-desktop"
+	depends on BR2_INSTALL_LIBSTDCPP
+	select BR2_PACKAGE_DIFIW_SHELL
+	help
+	  Difiw desktop: compositor and shell (floating dock, D menu,
+	  background tasks, windows) plus the test applications.
+	  Software rendering on the Linux framebuffer; apps run as
+	  separate unprivileged users with their own homes.
+
+comment "difiw-desktop needs a toolchain w/ C++"
+	depends on !BR2_INSTALL_LIBSTDCPP

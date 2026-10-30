@@ -1,0 +1,10 @@
+id=terminal
+name=Terminal
+name_ru=Терминал
+category=system
+icon=terminal
+exec=/usr/bin/difiw-apps
+args=terminal
+uid=20003
+perms=desktop.quit,power
+hidden=0

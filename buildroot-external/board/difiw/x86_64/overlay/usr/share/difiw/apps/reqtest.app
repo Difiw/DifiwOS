@@ -1,0 +1,10 @@
+id=reqtest
+name=Permission test
+name_ru=Тест прав
+category=test
+icon=shield
+exec=/usr/bin/difiw-apps
+args=reqtest
+uid=20007
+perms=
+hidden=1

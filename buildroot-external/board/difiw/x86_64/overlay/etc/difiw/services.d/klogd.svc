@@ -1,0 +1,4 @@
+name=klogd
+desc=Kernel log daemon
+match=klogd
+critical=0

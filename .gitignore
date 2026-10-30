@@ -10,6 +10,8 @@ build/
 artifacts/*.iso
 artifacts/legal-info/
 artifacts/qemu-serial.log
+artifacts/qemu-*.log
+artifacts/screenshots/
 
 # Editors / OS
 .vscode/

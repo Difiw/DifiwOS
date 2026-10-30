@@ -1,0 +1,4 @@
+name=difiw-desktop
+desc=Difiw desktop: windows and shell
+match=difiw-desktop
+critical=1

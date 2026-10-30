@@ -1,0 +1,4 @@
+name=crond
+desc=Scheduler (cron)
+match=crond
+critical=0
