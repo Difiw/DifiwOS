@@ -11,35 +11,14 @@ ParseResult parse_line(const std::string& line) {
     bool have = false;
     char quote = 0;
 
+    // No escape sequences: a backslash is an ordinary character (Windows-style paths).
     for (size_t i = 0; i < line.size(); ++i) {
         const char c = line[i];
-        if (quote == '\'') {
-            if (c == '\'') quote = 0; else cur += c;
-            continue;
-        }
-        if (quote == '"') {
-            if (c == '"') {
-                quote = 0;
-            } else if (c == '\\' && i + 1 < line.size() &&
-                       (line[i + 1] == '"' || line[i + 1] == '\\')) {
-                cur += line[++i];
-            } else {
-                cur += c;
-            }
+        if (quote) {
+            if (c == quote) quote = 0; else cur += c;
             continue;
         }
         if (c == '\'' || c == '"') { quote = c; have = true; continue; }
-        if (c == '\\') {
-            if (i + 1 >= line.size() || line[i + 1] == '\n') {
-                r.ok = false;
-                r.error = "line ends with a backslash";
-                r.args.clear();
-                return r;
-            }
-            cur += line[++i];
-            have = true;
-            continue;
-        }
         if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
             if (have) { r.args.push_back(cur); cur.clear(); have = false; }
             continue;
@@ -64,8 +43,12 @@ std::string join_path(const std::string& dir, const std::string& name) {
     return dir + "/" + name;
 }
 
-std::string normalize_path(const std::string& cwd, const std::string& path,
+std::string normalize_path(const std::string& cwd, const std::string& raw,
                            const std::string& home) {
+    std::string path = raw;
+    for (char& ch : path)
+        if (ch == '\\') ch = '/';  // Windows-style separators
+
     std::string full;
     if (path.empty()) {
         full = cwd;

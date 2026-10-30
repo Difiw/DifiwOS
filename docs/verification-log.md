@@ -38,3 +38,23 @@ VM `difiw-os-test` и её файлы удалены; VM «Ubuntu Linux» не �
 ## Не проверено
 Реальное железо, UEFI (не реализован), сеть, диск `DIFIWDATA` в VirtualBox, другие версии VirtualBox/QEMU,
 юридический аудит лицензий.
+
+---
+
+# Версия 0.2.0 Core (2026-10-30)
+
+Новое: `dir`, `cd ..` / `cd..` / пути с `\`, псевдонимы `cls type md rd`, `ver`; GRUB без меню (timeout 0);
+языки `ru`/`en` (`lang`), справка `help ru`, `--ru`/`--en` для любой команды; кириллический шрифт
+(`cyr-sun16`) и раскладка `ruwin_alt_sh-UTF-8` с переключением Alt+Shift на консоли VGA; пакет `kbd` (урезан в post-build).
+
+Найденные и исправленные ошибки:
+- Buildroot не пересобирает локальный пакет `difiw-shell` при правке `src/` — `build.sh` теперь делает `difiw-shell-dirclean`.
+- post-build удалял ненужные раскладки из инкрементального `target`; теперь недостающие файлы берутся из исходников kbd.
+- Тест QEMU: меню GRUB при timeout 0 не печатается; декодирование UTF-8 по границам чтения.
+
+Результаты `scripts/verify.sh` на итоговом ISO: **VERIFY: PASSED** (58 проверок оболочки на хосте, 39 в QEMU, включая
+`dir`, `cd..`, `cd \root\work`, `ru`/`help` по-русски, `echo тест привет`, `poweroff`, `reboot`, диск `DIFIWDATA`).
+
+VirtualBox 7.2.22 (временная VM, затем удалена): загрузка без меню, `dir`, `cd ..`, `ru` (шрифт + подсказка Alt+Shift),
+`echo` + Alt+Shift + русский текст в одной строке (вывод: «тест привет мир»), `help ru`, `help en`, `cd ru --ru`.
+Не проверено: Caps Lock в русской раскладке, Ctrl+Shift, реальное железо.

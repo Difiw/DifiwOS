@@ -20,16 +20,18 @@ int main() {
     CHECK(r.ok && r.args.size() == 3 && r.args[0] == "ls" && r.args[2] == "/tmp");
     r = parse_line("touch \"my file.txt\" 'a b'");
     CHECK(r.ok && r.args.size() == 3 && r.args[1] == "my file.txt" && r.args[2] == "a b");
-    r = parse_line("echo \"say \\\"hi\\\"\"");
+    r = parse_line("echo 'say \"hi\"'");
     CHECK(r.ok && r.args.size() == 2 && r.args[1] == "say \"hi\"");
-    r = parse_line("echo a\\ b");
-    CHECK(r.ok && r.args.size() == 2 && r.args[1] == "a b");
+    r = parse_line("cd \\tmp\\x");  // backslash is an ordinary character
+    CHECK(r.ok && r.args.size() == 2 && r.args[1] == "\\tmp\\x");
+    r = parse_line("echo \"привет мир\"");
+    CHECK(r.ok && r.args.size() == 2 && r.args[1] == "привет мир");
     r = parse_line("echo \"\"");
     CHECK(r.ok && r.args.size() == 2 && r.args[1].empty());
     r = parse_line("echo \"open");
     CHECK(!r.ok);
-    r = parse_line("echo x\\");
-    CHECK(!r.ok);
+    r = parse_line("cd\\");
+    CHECK(r.ok && r.args.size() == 1 && r.args[0] == "cd\\");
     r = parse_line("");
     CHECK(r.ok && r.args.empty());
     r = parse_line("   # comment only");
@@ -42,6 +44,8 @@ int main() {
     CHECK(normalize_path("/a", "") == "/a");
     CHECK(normalize_path("/a", "~/x", "/root") == "/root/x");
     CHECK(normalize_path("/a", "/../../etc") == "/etc");
+    CHECK(normalize_path("/root", "..\\tmp\\x") == "/tmp/x");
+    CHECK(normalize_path("/root", "\\etc\\..\\tmp") == "/tmp");
     CHECK(join_path("/", "x") == "/x");
     CHECK(join_path("/a/", "x") == "/a/x");
 

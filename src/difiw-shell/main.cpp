@@ -18,7 +18,8 @@ constexpr std::size_t kMaxLine = 4095;
 int run_line(const std::string& line) {
     const difiw::ParseResult pr = difiw::parse_line(line);
     if (!pr.ok) {
-        std::fprintf(stderr, "difiw: syntax error: %s\n", pr.error.c_str());
+        std::fprintf(stderr, difiw::msg("difiw: syntax error: %s\n", "difiw: синтаксическая ошибка: %s\n"),
+                     pr.error.c_str());
         return 2;
     }
     return difiw::run_command(pr.args);
@@ -63,7 +64,7 @@ int main(int argc, char** argv) {
             std::fflush(stdout);
         }
         if (!std::fgets(buf, sizeof buf, stdin)) {
-            if (tty) std::printf("\nexit\n");  // Ctrl+D
+            if (tty) std::printf("\n%s\n", difiw::msg("exit", "выход"));  // Ctrl+D
             break;
         }
         std::size_t len = std::strlen(buf);
@@ -72,7 +73,8 @@ int main(int argc, char** argv) {
             int c;
             while ((c = std::fgetc(stdin)) != EOF && c != '\n') {
             }
-            std::fprintf(stderr, "difiw: input too long (max %zu characters)\n", kMaxLine);
+            std::fprintf(stderr, difiw::msg("difiw: input too long (max %zu characters)\n",
+                                            "difiw: строка слишком длинная (максимум %zu символов)\n"), kMaxLine);
             status = 2;
             continue;
         }

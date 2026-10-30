@@ -19,7 +19,7 @@ chmod +x "$MIRROR"/scripts/*.sh "$MIRROR"/tests/*.sh \
 # Normalize line endings in case the files were checked out with CRLF.
 find "$MIRROR/scripts" "$MIRROR/tests" "$MIRROR/buildroot-external" "$MIRROR/src" \
     -type f \( -name '*.sh' -o -name '*.mk' -o -name '*.cfg' -o -name '*.fragment' -o -name 'Config.in' \
-    -o -name 'external.*' -o -name '*defconfig' -o -name 'inittab' -o -name 'S10*' -o -name 'difiw-session' \
+    -o -name 'external.*' -o -name '*defconfig' -o -name 'inittab' -o -name 'S10*' -o -name 'difiw-session' -o -name 'difiw-console' \
     -o -name '*.cpp' -o -name '*.hpp' -o -name 'Makefile' -o -name '*.py' \) \
     -exec sed -i 's/\r$//' {} +
 log "project mirrored to $MIRROR"

@@ -1,0 +1,13 @@
+#!/bin/sh
+# Prepares the Linux VGA console for Russian/Latin typing:
+#  - UTF-8 mode, Cyrillic console font
+#  - Windows-style JCUKEN keymap on top of US QWERTY; Alt+Shift toggles Latin <-> Russian
+# Exit status: 0 ok, 1 something failed, 2 not a virtual console (e.g. serial).
+# SPDX-License-Identifier: MIT
+
+kbd_mode -u 2>/dev/null || exit 2
+printf '\033%%G'
+rc=0
+setfont cyr-sun16 2>/dev/null || rc=1
+loadkeys -u ruwin_alt_sh-UTF-8 2>/dev/null || rc=1
+exit $rc

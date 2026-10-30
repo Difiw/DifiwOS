@@ -3,6 +3,9 @@
 
 #include <dirent.h>
 #include <fcntl.h>
+#include <linux/kd.h>
+#include <signal.h>
+#include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/reboot.h>
 #include <sys/stat.h>
@@ -11,8 +14,8 @@
 #include <sys/types.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <unistd.h>
-#include <signal.h>
 
 #include <algorithm>
 #include <cerrno>
@@ -33,8 +36,15 @@ namespace {
 
 constexpr std::size_t kReadLimit = 64 * 1024;  // `read` shows at most 64 KiB
 constexpr int kMaxDepth = 64;                  // recursion limit for size/del -r
+constexpr const char* kLangFile = "/run/difiw-lang";
+
+enum class Lang { En, Ru };
 
 std::string g_cwd = "/";
+Lang g_lang = Lang::En;
+
+// Picks the string for the current interface language.
+const char* L(const char* en, const char* ru) { return g_lang == Lang::Ru ? ru : en; }
 
 std::string home_dir() {
     const char* h = std::getenv("HOME");
@@ -43,13 +53,36 @@ std::string home_dir() {
 
 std::string resolve(const std::string& p) { return normalize_path(g_cwd, p, home_dir()); }
 
+std::string errtext(int e) {
+    if (g_lang == Lang::Ru) {
+        switch (e) {
+            case ENOENT: return "Нет такого файла или каталога";
+            case EEXIST: return "Уже существует";
+            case ENOTDIR: return "Не является каталогом";
+            case EISDIR: return "Это каталог";
+            case EACCES:
+            case EPERM: return "Отказано в доступе";
+            case ENOTEMPTY: return "Каталог не пуст";
+            case ENOSPC: return "Нет места на устройстве";
+            case EROFS: return "Файловая система только для чтения";
+            case ENAMETOOLONG: return "Слишком длинное имя";
+            default: break;
+        }
+    }
+    return std::strerror(e);
+}
+
 int fail(const char* cmd, const std::string& what, int err) {
-    std::fprintf(stderr, "difiw: %s: %s: %s\n", cmd, what.c_str(), std::strerror(err));
+    std::fprintf(stderr, "difiw: %s: %s: %s\n", cmd, what.c_str(), errtext(err).c_str());
     return 1;
 }
 
+const char* usage_for(const char* name, const char* fallback);
+
 int bad_usage(const char* cmd, const char* usage) {
-    std::fprintf(stderr, "difiw: %s: invalid arguments\nusage: %s\n", cmd, usage);
+    std::fprintf(stderr, L("difiw: %s: invalid arguments\nusage: %s\n",
+                           "difiw: %s: неверные аргументы\nформат: %s\n"),
+                 cmd, usage_for(cmd, usage));
     return 2;
 }
 
@@ -64,7 +97,9 @@ bool take_flags(const char* cmd, const std::vector<std::string>& args, const cha
         if (a.size() < 2 || a[0] != '-') break;
         for (std::size_t k = 1; k < a.size(); ++k) {
             if (!std::strchr(allowed, a[k])) {
-                std::fprintf(stderr, "difiw: %s: unknown option '-%c'\n", cmd, a[k]);
+                std::fprintf(stderr, L("difiw: %s: unknown option '-%c'\n",
+                                       "difiw: %s: неизвестный параметр '-%c'\n"),
+                             cmd, a[k]);
                 return false;
             }
             flags.insert(a[k]);
@@ -102,6 +137,131 @@ std::uint64_t meminfo_kb(const char* key) {
     return val;
 }
 
+std::string size_text(std::uint64_t bytes) {
+    std::string s = human_size(bytes);
+    if (g_lang == Lang::Ru) {
+        for (const auto& [from, to] : {std::pair<const char*, const char*>{"KiB", "КиБ"},
+                                       {"MiB", "МиБ"}, {"GiB", "ГиБ"}, {"TiB", "ТиБ"},
+                                       {"PiB", "ПиБ"}, {"EiB", "ЭиБ"}, {" B", " Б"}}) {
+            const std::size_t p = s.rfind(from);
+            if (p != std::string::npos && p + std::strlen(from) == s.size()) {
+                s.replace(p, std::strlen(from), to);
+                break;
+            }
+        }
+    }
+    return s;
+}
+
+std::string size_bytes_text(std::uint64_t bytes) {
+    if (bytes < 1024) return size_text(bytes);
+    return size_text(bytes) + " (" + std::to_string(bytes) + (g_lang == Lang::Ru ? " Б)" : " B)");
+}
+
+// ----------------------------------------------------- language / keyboard
+
+bool is_vt(int fd) {
+    char t = 0;
+    return ioctl(fd, KDGKBTYPE, &t) == 0 && (t == KB_101 || t == KB_84);
+}
+
+// Runs a helper program (setfont, loadkeys, ...) silently. True on exit status 0.
+bool run_quiet(const std::vector<const char*>& argv_in) {
+    std::vector<char*> argv;
+    for (const char* a : argv_in) argv.push_back(const_cast<char*>(a));
+    argv.push_back(nullptr);
+    const pid_t pid = fork();
+    if (pid < 0) return false;
+    if (pid == 0) {
+        const int nul = open("/dev/null", O_WRONLY);
+        if (nul >= 0) { dup2(nul, STDOUT_FILENO); dup2(nul, STDERR_FILENO); }
+        execvp(argv[0], argv.data());
+        _exit(127);
+    }
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0)
+        if (errno != EINTR) return false;
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+void save_lang() {
+    FILE* f = std::fopen(kLangFile, "w");
+    if (!f) return;
+    std::fputs(g_lang == Lang::Ru ? "ru\n" : "en\n", f);
+    std::fclose(f);
+}
+
+void load_lang() {
+    const char* env = std::getenv("DIFIW_LANG");
+    char buf[16] = {0};
+    if (env && *env) {
+        std::strncpy(buf, env, sizeof buf - 1);
+    } else if (FILE* f = std::fopen(kLangFile, "r")) {
+        if (!std::fgets(buf, sizeof buf, f)) buf[0] = 0;
+        std::fclose(f);
+    }
+    g_lang = std::strncmp(buf, "ru", 2) == 0 ? Lang::Ru : Lang::En;
+}
+
+// (Re)loads the Cyrillic font and the Latin/Russian keymap (Alt+Shift toggles the layout).
+// Only on a Linux VT (VGA console). `tried` is false when this terminal is not a VT.
+bool apply_console(bool& tried) {
+    tried = is_vt(STDIN_FILENO);
+    return tried && run_quiet({"/usr/libexec/difiw-console"});
+}
+
+void set_utf8_input() {
+    struct termios t;
+    if (tcgetattr(STDIN_FILENO, &t) == 0 && !(t.c_iflag & IUTF8)) {
+        t.c_iflag |= IUTF8;  // let the line discipline erase whole UTF-8 characters
+        tcsetattr(STDIN_FILENO, TCSANOW, &t);
+    }
+}
+
+int set_language(Lang lang) {
+    g_lang = lang;
+    save_lang();
+    set_utf8_input();
+    bool tried = false;
+    const bool ok = apply_console(tried);
+    if (lang == Lang::Ru) {
+        std::printf("Язык интерфейса: русский.\n");
+        if (ok) std::printf("Клавиатура: Alt+Shift переключает латиницу и русскую раскладку (ЙЦУКЕН; T = е).\n"
+                            "Команды набирайте латиницей, текст - по-русски: echo <Alt+Shift> тест\n");
+        else if (tried) std::printf("Не удалось загрузить шрифт или раскладку (см. README).\n");
+        else std::printf("Раскладка переключается только на консоли VGA; в этом терминале действует раскладка вашего компьютера.\n");
+    } else {
+        std::printf("Interface language: English.\n");
+        if (ok) std::printf("Keyboard: Alt+Shift toggles Latin and Russian layouts (JCUKEN; T = е).\n"
+                            "Type commands in Latin, text in Russian: echo <Alt+Shift> text\n");
+        else if (tried) std::printf("Could not load the keyboard layout (see README).\n");
+        else std::printf("The layout can only be switched on the VGA console; this terminal uses your host layout.\n");
+    }
+    return tried && !ok ? 1 : 0;
+}
+
+int cmd_lang(const std::vector<std::string>& args) {
+    if (args.size() == 1) {
+        std::printf(L("Language: %s (usage: lang en|ru, or just: en / ru)\n",
+                      "Язык: %s (формат: lang en|ru, либо просто: en / ru)\n"),
+                    g_lang == Lang::Ru ? "ru" : "en");
+        return 0;
+    }
+    if (args.size() == 2 && (args[1] == "en" || args[1] == "ru"))
+        return set_language(args[1] == "ru" ? Lang::Ru : Lang::En);
+    return bad_usage("lang", "lang [en|ru]");
+}
+
+int cmd_en(const std::vector<std::string>& args) {
+    if (args.size() != 1) return bad_usage("en", "en");
+    return set_language(Lang::En);
+}
+
+int cmd_ru(const std::vector<std::string>& args) {
+    if (args.size() != 1) return bad_usage("ru", "ru");
+    return set_language(Lang::Ru);
+}
+
 // ---------------------------------------------------------------- commands
 
 int cmd_help(const std::vector<std::string>& args);
@@ -124,9 +284,12 @@ int cmd_date(const std::vector<std::string>& args) {
     const std::time_t t = std::time(nullptr);
     struct tm tm;
     localtime_r(&t, &tm);
-    char buf[64];
-    std::strftime(buf, sizeof buf, "%Y-%m-%d, %A", &tm);
-    std::printf("%s\n", buf);
+    static const char* const wd_en[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+    static const char* const wd_ru[] = {"воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"};
+    char buf[16];
+    std::strftime(buf, sizeof buf, "%Y-%m-%d", &tm);
+    const int w = tm.tm_wday >= 0 && tm.tm_wday < 7 ? tm.tm_wday : 0;
+    std::printf("%s, %s\n", buf, g_lang == Lang::Ru ? wd_ru[w] : wd_en[w]);
     return 0;
 }
 
@@ -138,16 +301,20 @@ int cmd_info(const std::vector<std::string>& args) {
     const bool have_si = sysinfo(&si) == 0;
     const char* tty = ttyname(STDIN_FILENO);
     std::printf("Difiw OS %s %s\n", kVersion, kEdition);
-    std::printf("  Kernel:       %s %s (%s)\n", u.sysname, u.release, u.machine);
-    std::printf("  Hostname:     %s\n", u.nodename);
-    if (have_si) std::printf("  Uptime:       %s\n", format_duration(si.uptime).c_str());
-    std::printf("  Shell:        Difiw Shell %s\n", kVersion);
-    std::printf("  Terminal:     %s\n", tty ? tty : "(not a terminal)");
-    std::printf("  Root FS:      RAM (initramfs); changes are lost on reboot\n");
+    std::printf(L("  Kernel:       %s %s (%s)\n", "  Ядро:         %s %s (%s)\n"), u.sysname, u.release, u.machine);
+    std::printf(L("  Hostname:     %s\n", "  Имя узла:     %s\n"), u.nodename);
+    if (have_si) std::printf(L("  Uptime:       %s\n", "  Время работы: %s\n"), format_duration(si.uptime).c_str());
+    std::printf(L("  Shell:        Difiw Shell %s\n", "  Оболочка:     Difiw Shell %s\n"), kVersion);
+    std::printf(L("  Terminal:     %s\n", "  Терминал:     %s\n"), tty ? tty : L("(not a terminal)", "(не терминал)"));
+    std::printf(L("  Language:     %s\n", "  Язык:         %s\n"), g_lang == Lang::Ru ? "ru" : "en");
+    std::printf("%s", L("  Root FS:      RAM (initramfs); changes are lost on reboot\n",
+                        "  Корень ФС:    RAM (initramfs); изменения пропадают после перезагрузки\n"));
     if (is_mountpoint_used("/data"))
-        std::printf("  Persistence:  /data is mounted (disk labelled DIFIWDATA)\n");
+        std::printf("%s", L("  Persistence:  /data is mounted (disk labelled DIFIWDATA)\n",
+                            "  Хранение:     /data подключён (диск с меткой DIFIWDATA)\n"));
     else
-        std::printf("  Persistence:  none (no DIFIWDATA disk attached)\n");
+        std::printf("%s", L("  Persistence:  none (no DIFIWDATA disk attached)\n",
+                            "  Хранение:     нет (диск DIFIWDATA не подключён)\n"));
     return 0;
 }
 
@@ -161,11 +328,11 @@ int cmd_mem(const std::vector<std::string>& args) {
     if (avail == 0) avail = (si.freeram + si.bufferram) * unit;
     if (avail > total) avail = total;
     const std::uint64_t used = total - avail;
-    std::printf("Memory\n");
-    std::printf("  Total:      %s\n", human_size(total).c_str());
-    std::printf("  Used:       %s (%u%%)\n", human_size(used).c_str(), percent(used, total));
-    std::printf("  Available:  %s\n", human_size(avail).c_str());
-    std::printf("  Free:       %s\n", human_size(si.freeram * unit).c_str());
+    std::printf("%s", L("Memory\n", "Память\n"));
+    std::printf(L("  Total:      %s\n", "  Всего:      %s\n"), size_text(total).c_str());
+    std::printf(L("  Used:       %s (%u%%)\n", "  Занято:     %s (%u%%)\n"), size_text(used).c_str(), percent(used, total));
+    std::printf(L("  Available:  %s\n", "  Доступно:   %s\n"), size_text(avail).c_str());
+    std::printf(L("  Free:       %s\n", "  Свободно:   %s\n"), size_text(si.freeram * unit).c_str());
     return 0;
 }
 
@@ -177,15 +344,16 @@ int cmd_disk(const std::vector<std::string>& args) {
     const std::uint64_t total = static_cast<std::uint64_t>(sv.f_blocks) * sv.f_frsize;
     const std::uint64_t freeb = static_cast<std::uint64_t>(sv.f_bavail) * sv.f_frsize;
     if (total == 0) {
-        std::printf("Filesystem of %s\n  No fixed capacity is reported (RAM-backed filesystem).\n",
+        std::printf(L("Filesystem of %s\n  No fixed capacity is reported (RAM-backed filesystem).\n",
+                      "Файловая система %s\n  Ёмкость не ограничена (файловая система в RAM).\n"),
                     path.c_str());
         return 0;
     }
     const std::uint64_t used = total - std::min<std::uint64_t>(total, static_cast<std::uint64_t>(sv.f_bfree) * sv.f_frsize);
-    std::printf("Filesystem of %s\n", path.c_str());
-    std::printf("  Total:  %s\n", human_size(total).c_str());
-    std::printf("  Used:   %s (%u%%)\n", human_size(used).c_str(), percent(used, total));
-    std::printf("  Free:   %s\n", human_size(freeb).c_str());
+    std::printf(L("Filesystem of %s\n", "Файловая система %s\n"), path.c_str());
+    std::printf(L("  Total:  %s\n", "  Всего:    %s\n"), size_text(total).c_str());
+    std::printf(L("  Used:   %s (%u%%)\n", "  Занято:   %s (%u%%)\n"), size_text(used).c_str(), percent(used, total));
+    std::printf(L("  Free:   %s\n", "  Свободно: %s\n"), size_text(freeb).c_str());
     return 0;
 }
 
@@ -198,7 +366,7 @@ void walk_size(const std::string& path, SizeStats& st, int depth,
                std::set<std::pair<dev_t, ino_t>>& seen) {
     struct stat sb;
     if (lstat(path.c_str(), &sb) != 0) {
-        std::fprintf(stderr, "difiw: size: %s: %s\n", path.c_str(), std::strerror(errno));
+        std::fprintf(stderr, "difiw: size: %s: %s\n", path.c_str(), errtext(errno).c_str());
         ++st.errors;
         return;
     }
@@ -210,14 +378,14 @@ void walk_size(const std::string& path, SizeStats& st, int depth,
     }
     ++st.dirs;
     if (depth >= kMaxDepth) {
-        std::fprintf(stderr, "difiw: size: %s: too deep, skipped\n", path.c_str());
+        std::fprintf(stderr, L("difiw: size: %s: too deep, skipped\n", "difiw: size: %s: слишком глубоко, пропущено\n"), path.c_str());
         ++st.errors;
         return;
     }
     if (!seen.insert({sb.st_dev, sb.st_ino}).second) return;  // loop guard
     DIR* d = opendir(path.c_str());
     if (!d) {
-        std::fprintf(stderr, "difiw: size: %s: %s\n", path.c_str(), std::strerror(errno));
+        std::fprintf(stderr, "difiw: size: %s: %s\n", path.c_str(), errtext(errno).c_str());
         ++st.errors;
         return;
     }
@@ -237,17 +405,20 @@ int cmd_size(const std::vector<std::string>& args) {
     std::set<std::pair<dev_t, ino_t>> seen;
     walk_size(path, st, 0, seen);
     if (S_ISDIR(sb.st_mode)) {
-        std::printf("%s: %s%s in %llu files, %llu directories", path.c_str(),
-                    st.overflow ? ">= " : "", size_with_bytes(st.bytes).c_str(),
+        std::printf(L("%s: %s%s in %llu files, %llu directories", "%s: %s%s в файлах: %llu, каталогах: %llu"),
+                    path.c_str(), st.overflow ? ">= " : "", size_bytes_text(st.bytes).c_str(),
                     static_cast<unsigned long long>(st.files),
                     static_cast<unsigned long long>(st.dirs > 0 ? st.dirs - 1 : 0));
-        if (st.links) std::printf(", %llu symlinks (not followed)", static_cast<unsigned long long>(st.links));
+        if (st.links)
+            std::printf(L(", %llu symlinks (not followed)", ", символических ссылок: %llu (не обходятся)"),
+                        static_cast<unsigned long long>(st.links));
         std::printf("\n");
     } else {
-        std::printf("%s: %s\n", path.c_str(), size_with_bytes(st.bytes).c_str());
+        std::printf("%s: %s\n", path.c_str(), size_bytes_text(st.bytes).c_str());
     }
     if (st.errors) {
-        std::fprintf(stderr, "difiw: size: %llu objects could not be read\n",
+        std::fprintf(stderr, L("difiw: size: %llu objects could not be read\n",
+                               "difiw: size: не удалось прочитать объектов: %llu\n"),
                      static_cast<unsigned long long>(st.errors));
         return 1;
     }
@@ -269,8 +440,19 @@ void print_ls_entry(const std::string& full, const std::string& name) {
         std::printf("l  %10s  %s -> %s\n", "-", name.c_str(), target);
     } else {
         const char t = S_ISREG(sb.st_mode) ? '-' : 'o';
-        std::printf("%c  %10s  %s\n", t, human_size(static_cast<std::uint64_t>(sb.st_size)).c_str(), name.c_str());
+        std::printf("%c  %10s  %s\n", t, size_text(static_cast<std::uint64_t>(sb.st_size)).c_str(), name.c_str());
     }
+}
+
+std::vector<std::string> list_names(DIR* d, bool all) {
+    std::vector<std::string> names;
+    while (struct dirent* e = readdir(d)) {
+        if (!std::strcmp(e->d_name, ".") || !std::strcmp(e->d_name, "..")) continue;
+        if (e->d_name[0] == '.' && !all) continue;
+        names.push_back(e->d_name);
+    }
+    std::sort(names.begin(), names.end());
+    return names;
 }
 
 int cmd_ls(const std::vector<std::string>& args) {
@@ -287,20 +469,78 @@ int cmd_ls(const std::vector<std::string>& args) {
     }
     DIR* d = opendir(path.c_str());
     if (!d) return fail("ls", path, errno);
-    std::vector<std::string> names;
-    while (struct dirent* e = readdir(d)) {
-        if (!std::strcmp(e->d_name, ".") || !std::strcmp(e->d_name, "..")) continue;
-        if (e->d_name[0] == '.' && !flags.count('a')) continue;
-        names.push_back(e->d_name);
-    }
+    const auto names = list_names(d, flags.count('a') != 0);
     closedir(d);
-    std::sort(names.begin(), names.end());
     for (const auto& n : names) print_ls_entry(join_path(path, n), n);
-    if (names.empty()) std::printf("(empty)\n");
+    if (names.empty()) std::printf("%s\n", L("(empty)", "(пусто)"));
     return 0;
 }
 
-int cmd_cd(const std::vector<std::string>& args) {
+// Windows-style directory listing:  date  time  <DIR>|size  name
+void print_dir_entry(const std::string& full, const std::string& name, std::uint64_t& files,
+                     std::uint64_t& dirs, std::uint64_t& bytes) {
+    struct stat sb;
+    if (lstat(full.c_str(), &sb) != 0) return;
+    char when[32];
+    struct tm tm;
+    localtime_r(&sb.st_mtime, &tm);
+    std::strftime(when, sizeof when, "%Y-%m-%d  %H:%M", &tm);
+    if (S_ISDIR(sb.st_mode)) {
+        std::printf("%s    <DIR>          %s\n", when, name.c_str());
+        ++dirs;
+    } else {
+        const auto sz = static_cast<std::uint64_t>(sb.st_size);
+        std::printf("%s  %12llu  %s\n", when, static_cast<unsigned long long>(sz), name.c_str());
+        ++files;
+        bool ov = false;
+        bytes = sat_add(bytes, sz, ov);
+    }
+}
+
+int cmd_dir(const std::vector<std::string>& args) {
+    std::set<char> flags;
+    std::vector<std::string> rest;
+    if (!take_flags("dir", args, "a", flags, rest)) return 2;
+    if (rest.size() > 1) return bad_usage("dir", "dir [-a] [path]");
+    const std::string path = rest.empty() ? g_cwd : resolve(rest[0]);
+    struct stat sb;
+    if (stat(path.c_str(), &sb) != 0) return fail("dir", path, errno);
+    if (!S_ISDIR(sb.st_mode)) return fail("dir", path, ENOTDIR);
+    DIR* d = opendir(path.c_str());
+    if (!d) return fail("dir", path, errno);
+    auto names = list_names(d, flags.count('a') != 0);
+    closedir(d);
+
+    std::vector<std::string> dirs_v, files_v;
+    for (const auto& n : names) {
+        struct stat s2;
+        if (lstat(join_path(path, n).c_str(), &s2) == 0 && S_ISDIR(s2.st_mode)) dirs_v.push_back(n);
+        else files_v.push_back(n);
+    }
+    std::printf(L("\n Directory of %s\n\n", "\n Каталог: %s\n\n"), path.c_str());
+    std::uint64_t files = 0, dirs = 0, bytes = 0;
+    if (path != "/") {
+        print_dir_entry(path, ".", files, dirs, bytes);
+        print_dir_entry(join_path(path, ".."), "..", files, dirs, bytes);
+    }
+    for (const auto& n : dirs_v) print_dir_entry(join_path(path, n), n, files, dirs, bytes);
+    for (const auto& n : files_v) print_dir_entry(join_path(path, n), n, files, dirs, bytes);
+    const std::uint64_t subdirs = path != "/" ? dirs - 2 : dirs;
+    std::printf(L("%16llu File(s)  %s\n", "%16llu файл(ов)  %s\n"), static_cast<unsigned long long>(files),
+                size_text(bytes).c_str());
+    struct statvfs sv;
+    if (statvfs(path.c_str(), &sv) == 0 && sv.f_blocks != 0)
+        std::printf(L("%16llu Dir(s)   %s free\n", "%16llu каталог(ов)  свободно: %s\n"),
+                    static_cast<unsigned long long>(subdirs),
+                    size_text(static_cast<std::uint64_t>(sv.f_bavail) * sv.f_frsize).c_str());
+    else
+        std::printf(L("%16llu Dir(s)\n", "%16llu каталог(ов)\n"), static_cast<unsigned long long>(subdirs));
+    return 0;
+}
+
+int cmd_cd(const std::vector<std::string>& args_in) {
+    std::vector<std::string> args = args_in;
+    if (args.size() >= 2 && (args[1] == "/d" || args[1] == "/D")) args.erase(args.begin() + 1);  // Windows habit
     if (args.size() > 2) return bad_usage("cd", "cd [path]");
     const std::string target = args.size() == 2 ? resolve(args[1]) : home_dir();
     if (chdir(target.c_str()) != 0) return fail("cd", target, errno);
@@ -322,7 +562,7 @@ int cmd_read(const std::vector<std::string>& args) {
     if (stat(path.c_str(), &sb) != 0) return fail("read", path, errno);
     if (S_ISDIR(sb.st_mode)) return fail("read", path, EISDIR);
     if (!S_ISREG(sb.st_mode)) {
-        std::fprintf(stderr, "difiw: read: %s: not a regular file\n", path.c_str());
+        std::fprintf(stderr, L("difiw: read: %s: not a regular file\n", "difiw: read: %s: не обычный файл\n"), path.c_str());
         return 1;
     }
     const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
@@ -344,14 +584,15 @@ int cmd_read(const std::vector<std::string>& args) {
     const bool truncated = got > kReadLimit;
     if (truncated) got = kReadLimit;
     if (std::memchr(buf.data(), 0, std::min<std::size_t>(got, 4096))) {
-        std::fprintf(stderr, "difiw: read: %s: looks like a binary file, not shown\n", path.c_str());
+        std::fprintf(stderr, L("difiw: read: %s: looks like a binary file, not shown\n",
+                               "difiw: read: %s: похоже на двоичный файл, не показан\n"), path.c_str());
         return 1;
     }
     std::fwrite(buf.data(), 1, got, stdout);
     if (got && buf[got - 1] != '\n') std::fputc('\n', stdout);
     if (truncated)
-        std::printf("[output truncated at %zu bytes; file is %s]\n", kReadLimit,
-                    size_with_bytes(static_cast<std::uint64_t>(sb.st_size)).c_str());
+        std::printf(L("[output truncated at %zu bytes; file is %s]\n", "[вывод обрезан на %zu байтах; размер файла %s]\n"),
+                    kReadLimit, size_bytes_text(static_cast<std::uint64_t>(sb.st_size)).c_str());
     return 0;
 }
 
@@ -424,13 +665,13 @@ void remove_tree(const std::string& path, int depth, DelStats& st) {
     if (lstat(path.c_str(), &sb) != 0) { ++st.errors; return; }
     if (S_ISDIR(sb.st_mode)) {
         if (depth >= kMaxDepth) {
-            std::fprintf(stderr, "difiw: del: %s: too deep, skipped\n", path.c_str());
+            std::fprintf(stderr, L("difiw: del: %s: too deep, skipped\n", "difiw: del: %s: слишком глубоко, пропущено\n"), path.c_str());
             ++st.errors;
             return;
         }
         DIR* d = opendir(path.c_str());
         if (!d) {
-            std::fprintf(stderr, "difiw: del: %s: %s\n", path.c_str(), std::strerror(errno));
+            std::fprintf(stderr, "difiw: del: %s: %s\n", path.c_str(), errtext(errno).c_str());
             ++st.errors;
             return;
         }
@@ -442,11 +683,11 @@ void remove_tree(const std::string& path, int depth, DelStats& st) {
         closedir(d);
         for (const auto& k : kids) remove_tree(join_path(path, k), depth + 1, st);
         if (rmdir(path.c_str()) == 0) ++st.removed;
-        else { std::fprintf(stderr, "difiw: del: %s: %s\n", path.c_str(), std::strerror(errno)); ++st.errors; }
+        else { std::fprintf(stderr, "difiw: del: %s: %s\n", path.c_str(), errtext(errno).c_str()); ++st.errors; }
     } else if (unlink(path.c_str()) == 0) {
         ++st.removed;
     } else {
-        std::fprintf(stderr, "difiw: del: %s: %s\n", path.c_str(), std::strerror(errno));
+        std::fprintf(stderr, "difiw: del: %s: %s\n", path.c_str(), errtext(errno).c_str());
         ++st.errors;
     }
 }
@@ -457,34 +698,37 @@ int cmd_del(const std::vector<std::string>& args) {
     if (!take_flags("del", args, "ry", flags, rest)) return 2;
     if (rest.size() != 1) return bad_usage("del", "del [-r [-y]] <path>");
     if (rest[0].empty()) {
-        std::fprintf(stderr, "difiw: del: empty path refused\n");
+        std::fprintf(stderr, "%s", L("difiw: del: empty path refused\n", "difiw: del: пустой путь отклонён\n"));
         return 2;
     }
     const std::string path = resolve(rest[0]);
     if (is_protected_path(path) || protected_by_realpath(path)) {
-        std::fprintf(stderr, "difiw: del: %s: protected system path, refusing to delete\n", path.c_str());
+        std::fprintf(stderr, L("difiw: del: %s: protected system path, refusing to delete\n",
+                               "difiw: del: %s: защищённый системный путь, удаление отклонено\n"), path.c_str());
         return 3;
     }
     if (g_cwd == path || g_cwd.compare(0, path.size() + 1, path + "/") == 0) {
-        std::fprintf(stderr, "difiw: del: %s: this is the current directory (or contains it); cd elsewhere first\n", path.c_str());
+        std::fprintf(stderr, L("difiw: del: %s: this is the current directory (or contains it); cd elsewhere first\n",
+                               "difiw: del: %s: это текущий каталог (или он внутри); сначала перейдите (cd) в другой\n"), path.c_str());
         return 3;
     }
     struct stat sb;
     if (lstat(path.c_str(), &sb) != 0) return fail("del", path, errno);
     if (!S_ISDIR(sb.st_mode)) {
         if (unlink(path.c_str()) != 0) return fail("del", path, errno);
-        std::printf("deleted %s\n", path.c_str());
+        std::printf(L("deleted %s\n", "удалено: %s\n"), path.c_str());
         return 0;
     }
     if (!flags.count('r')) {
         if (rmdir(path.c_str()) != 0) {
             if (errno == ENOTEMPTY)
-                std::fprintf(stderr, "difiw: del: %s: directory not empty (use 'del -r' to delete it with contents)\n", path.c_str());
+                std::fprintf(stderr, L("difiw: del: %s: directory not empty (use 'del -r' to delete it with contents)\n",
+                                       "difiw: del: %s: каталог не пуст (используйте 'del -r', чтобы удалить с содержимым)\n"), path.c_str());
             else
                 return fail("del", path, errno);
             return 1;
         }
-        std::printf("deleted %s\n", path.c_str());
+        std::printf(L("deleted %s\n", "удалено: %s\n"), path.c_str());
         return 0;
     }
     SizeStats count;
@@ -492,29 +736,32 @@ int cmd_del(const std::vector<std::string>& args) {
     walk_size(path, count, 0, seen);
     if (!flags.count('y')) {
         if (!isatty(STDIN_FILENO)) {
-            std::fprintf(stderr, "difiw: del: -r needs confirmation; add -y in non-interactive use\n");
+            std::fprintf(stderr, "%s", L("difiw: del: -r needs confirmation; add -y in non-interactive use\n",
+                                         "difiw: del: для -r нужно подтверждение; без терминала добавьте -y\n"));
             return 3;
         }
-        std::printf("Delete %s with %llu files and %llu subdirectories? [y/N] ", path.c_str(),
+        std::printf(L("Delete %s with %llu files and %llu subdirectories? [y/N] ",
+                      "Удалить %s вместе с файлами (%llu) и подкаталогами (%llu)? [y/N] "), path.c_str(),
                     static_cast<unsigned long long>(count.files),
                     static_cast<unsigned long long>(count.dirs > 0 ? count.dirs - 1 : 0));
         std::fflush(stdout);
         char ans[16];
         if (!std::fgets(ans, sizeof ans, stdin) || (ans[0] != 'y' && ans[0] != 'Y')) {
-            std::printf("cancelled\n");
+            std::printf("%s\n", L("cancelled", "отменено"));
             return 1;
         }
     }
     DelStats st;
     remove_tree(path, 0, st);
-    std::printf("deleted %llu objects%s\n", static_cast<unsigned long long>(st.removed),
-                st.errors ? " (with errors)" : "");
+    std::printf(L("deleted %llu objects%s\n", "удалено объектов: %llu%s\n"), static_cast<unsigned long long>(st.removed),
+                st.errors ? L(" (with errors)", " (с ошибками)") : "");
     return st.errors ? 1 : 0;
 }
 
 int power_action(const char* cmd, int what, const char* msg) {
     if (geteuid() != 0) {
-        std::fprintf(stderr, "difiw: %s: permission denied (root required)\n", cmd);
+        std::fprintf(stderr, L("difiw: %s: permission denied (root required)\n",
+                               "difiw: %s: отказано в доступе (нужен root)\n"), cmd);
         return 1;
     }
     std::printf("%s\n", msg);
@@ -526,12 +773,12 @@ int power_action(const char* cmd, int what, const char* msg) {
 
 int cmd_reboot(const std::vector<std::string>& args) {
     if (args.size() != 1) return bad_usage("reboot", "reboot");
-    return power_action("reboot", RB_AUTOBOOT, "Syncing disks... rebooting.");
+    return power_action("reboot", RB_AUTOBOOT, L("Syncing disks... rebooting.", "Запись данных на диск... перезагрузка."));
 }
 
 int cmd_poweroff(const std::vector<std::string>& args) {
     if (args.size() != 1) return bad_usage("poweroff", "poweroff");
-    return power_action("poweroff", RB_POWER_OFF, "Syncing disks... powering off.");
+    return power_action("poweroff", RB_POWER_OFF, L("Syncing disks... powering off.", "Запись данных на диск... выключение."));
 }
 
 int cmd_echo(const std::vector<std::string>& args) {
@@ -540,35 +787,82 @@ int cmd_echo(const std::vector<std::string>& args) {
     return 0;
 }
 
+int cmd_ver(const std::vector<std::string>& args) {
+    if (args.size() != 1) return bad_usage("ver", "ver");
+    std::printf("Difiw OS %s %s (Difiw Shell %s)\n", kVersion, kEdition, kVersion);
+    return 0;
+}
+
 int cmd_exit(const std::vector<std::string>&) { return kExitShell; }
 
 struct Builtin {
     const char* name;
     const char* usage;
-    const char* summary;
+    const char* summary_en;
+    const char* summary_ru;
     int (*fn)(const std::vector<std::string>&);
 };
 
 const Builtin kBuiltins[] = {
-    {"help", "help [command]", "show this list or details of one command", cmd_help},
-    {"time", "time", "current time, e.g. 14:03:22 (UTC+00:00)", cmd_time},
-    {"date", "date", "current date, e.g. 2026-10-30, Friday", cmd_date},
-    {"info", "info", "system, kernel, uptime and storage mode", cmd_info},
-    {"mem", "mem", "RAM total / used / available", cmd_mem},
-    {"disk", "disk [path]", "filesystem capacity of a path (default: current dir)", cmd_disk},
-    {"size", "size <path>", "size of a file or recursive size of a directory", cmd_size},
-    {"ls", "ls [-a] [path]", "list a directory (-a shows hidden files)", cmd_ls},
-    {"cd", "cd [path]", "change directory (no argument: home)", cmd_cd},
-    {"pwd", "pwd", "print the current directory", cmd_pwd},
-    {"read", "read <file>", "print a text file (max 64 KiB, no binaries)", cmd_read},
-    {"clear", "clear", "clear the terminal", cmd_clear},
-    {"mkdir", "mkdir [-p] <path>...", "create directories", cmd_mkdir},
-    {"touch", "touch <path>...", "create files or update their time", cmd_touch},
-    {"del", "del [-r [-y]] <path>", "delete a file or empty directory (-r: with contents)", cmd_del},
-    {"echo", "echo [text...]", "print text", cmd_echo},
-    {"reboot", "reboot", "sync and restart the machine", cmd_reboot},
-    {"poweroff", "poweroff", "sync and power off the machine", cmd_poweroff},
-    {"exit", "exit", "close this session (a new one starts)", cmd_exit},
+    {"help", "help [command]", "show this list or details of one command", "список команд или справка по одной", cmd_help},
+    {"dir", "dir [-a] [path]", "Windows-style listing with dates and sizes", "список как в Windows: даты и размеры", cmd_dir},
+    {"ls", "ls [-a] [path]", "compact list (-a shows hidden files)", "краткий список (-a: скрытые файлы)", cmd_ls},
+    {"cd", "cd [path]", "change directory: cd .. / cd \\tmp / cd.. (no argument: home)", "сменить каталог: cd .. / cd \\tmp / cd.. (без аргумента: домашний)", cmd_cd},
+    {"pwd", "pwd", "print the current directory", "показать текущий каталог", cmd_pwd},
+    {"read", "read <file>", "print a text file (max 64 KiB, no binaries); alias: type", "показать текстовый файл (до 64 КиБ); псевдоним: type", cmd_read},
+    {"mkdir", "mkdir [-p] <path>...", "create directories; alias: md", "создать каталоги; псевдоним: md", cmd_mkdir},
+    {"touch", "touch <path>...", "create files or update their time", "создать файлы или обновить время", cmd_touch},
+    {"del", "del [-r [-y]] <path>", "delete a file or empty directory (-r: with contents); rd for dirs", "удалить файл или пустой каталог (-r: с содержимым); rd для каталогов", cmd_del},
+    {"size", "size <path>", "size of a file or recursive size of a directory", "размер файла или каталога (рекурсивно)", cmd_size},
+    {"clear", "clear", "clear the terminal; alias: cls", "очистить экран; псевдоним: cls", cmd_clear},
+    {"time", "time", "current time, e.g. 14:03:22 (UTC+00:00)", "текущее время, напр. 14:03:22 (UTC+00:00)", cmd_time},
+    {"date", "date", "current date, e.g. 2026-10-30, Friday", "текущая дата, напр. 2026-10-30, пятница", cmd_date},
+    {"info", "info", "system, kernel, uptime and storage mode", "система, ядро, время работы, режим хранения", cmd_info},
+    {"mem", "mem", "RAM total / used / available", "память: всего / занято / доступно", cmd_mem},
+    {"disk", "disk [path]", "filesystem capacity of a path", "ёмкость файловой системы пути", cmd_disk},
+    {"lang", "lang [en|ru]", "show or set the language (also: en, ru)", "показать или задать язык (также: en, ru)", cmd_lang},
+    {"en", "en", "switch messages to English (keyboard: Alt+Shift)", "сообщения на английском (клавиатура: Alt+Shift)", cmd_en},
+    {"ru", "ru", "switch messages to Russian (keyboard: Alt+Shift)", "сообщения на русском (клавиатура: Alt+Shift)", cmd_ru},
+    {"echo", "echo [text...]", "print text", "вывести текст", cmd_echo},
+    {"ver", "ver", "print the Difiw OS version", "версия Difiw OS", cmd_ver},
+    {"reboot", "reboot", "sync and restart the machine", "записать данные и перезагрузить", cmd_reboot},
+    {"poweroff", "poweroff", "sync and power off the machine", "записать данные и выключить", cmd_poweroff},
+    {"exit", "exit", "close this session (a new one starts)", "закрыть сессию (запустится новая)", cmd_exit},
+};
+
+// Usage strings with Russian placeholders, e.g. "read <файл>".
+const std::pair<const char*, const char*> kUsageRu[] = {
+    {"help", "help [команда]"}, {"dir", "dir [-a] [путь]"}, {"ls", "ls [-a] [путь]"}, {"cd", "cd [путь]"},
+    {"pwd", "pwd"}, {"read", "read <файл>"}, {"mkdir", "mkdir [-p] <путь>..."}, {"touch", "touch <путь>..."},
+    {"del", "del [-r [-y]] <путь>"}, {"size", "size <путь>"}, {"clear", "clear"}, {"time", "time"},
+    {"date", "date"}, {"info", "info"}, {"mem", "mem"}, {"disk", "disk [путь]"}, {"lang", "lang [en|ru]"},
+    {"en", "en"}, {"ru", "ru"}, {"echo", "echo [текст...]"}, {"ver", "ver"}, {"reboot", "reboot"},
+    {"poweroff", "poweroff"}, {"exit", "exit"},
+};
+
+// Usage text of a built-in in the current language.
+const char* usage_for(const char* name, const char* fallback) {
+    for (const auto& b : kBuiltins)
+        if (!std::strcmp(b.name, name)) {
+            if (g_lang == Lang::Ru)
+                for (const auto& [n, u] : kUsageRu)
+                    if (!std::strcmp(n, name)) return u;
+            return b.usage;
+        }
+    return fallback;
+}
+
+// Display width of a UTF-8 string (code points), for aligning columns.
+std::size_t utf8_len(const char* s) {
+    std::size_t n = 0;
+    for (; *s; ++s)
+        if ((static_cast<unsigned char>(*s) & 0xC0) != 0x80) ++n;
+    return n;
+}
+
+// Windows-style aliases -> built-in command names.
+const std::pair<const char*, const char*> kAliases[] = {
+    {"cls", "clear"}, {"type", "read"}, {"md", "mkdir"}, {"chdir", "cd"}, {"rd", "del"}, {"rmdir", "del"},
 };
 
 int cmd_help(const std::vector<std::string>& args) {
@@ -576,17 +870,29 @@ int cmd_help(const std::vector<std::string>& args) {
     if (args.size() == 2) {
         for (const auto& b : kBuiltins) {
             if (args[1] == b.name) {
-                std::printf("%s\n  usage: %s\n", b.summary, b.usage);
+                std::printf(L("%s\n  usage: %s\n", "%s\n  формат: %s\n"), L(b.summary_en, b.summary_ru),
+                            usage_for(b.name, b.usage));
+                std::printf("%s", L("  <x> required argument, [x] optional\n", "  <x> обязательный аргумент, [x] необязательный\n"));
                 return 0;
             }
         }
-        std::fprintf(stderr, "difiw: help: no such command: %s\n", args[1].c_str());
+        std::fprintf(stderr, L("difiw: help: no such command: %s\n", "difiw: help: нет такой команды: %s\n"), args[1].c_str());
         return 1;
     }
-    std::printf("Difiw Shell %s - built-in commands:\n", kVersion);
-    for (const auto& b : kBuiltins) std::printf("  %-22s %s\n", b.usage, b.summary);
-    std::printf("Other programs from PATH are started as external commands.\n");
-    std::printf("Quotes: 'single' and \"double\"; no pipes or redirects in 0.1.0.\n");
+    std::printf(L("Difiw Shell %s - built-in commands:\n", "Difiw Shell %s - встроенные команды:\n"), kVersion);
+    for (const auto& b : kBuiltins) {
+        const char* u = usage_for(b.name, b.usage);
+        const std::size_t w = utf8_len(u);
+        std::printf("  %s%*s %s\n", u, w < 22 ? static_cast<int>(22 - w) : 0, "", L(b.summary_en, b.summary_ru));
+    }
+    std::printf("%s", L("<x> required argument, [x] optional.  Russian help: help ru   (any command: add --ru / --en)\n",
+                        "<x> обязательный аргумент, [x] необязательный.  Справка на английском: help en   (любая команда: --ru / --en)\n"));
+    std::printf("%s", L("Other programs from PATH are started as external commands.\n"
+                        "Paths: / or \\ both work (cd \\tmp, dir ..\\etc). Quotes: 'single' and \"double\".\n"
+                        "No pipes or redirects in this version.\n",
+                        "Остальные программы из PATH запускаются как внешние команды.\n"
+                        "Пути: подходят и / и \\ (cd \\tmp, dir ..\\etc). Кавычки: 'одинарные' и \"двойные\".\n"
+                        "Конвейеров и перенаправлений в этой версии нет.\n"));
     return 0;
 }
 
@@ -604,9 +910,10 @@ int run_external(const std::vector<std::string>& args) {
         execvp(argv[0], argv.data());
         const int e = errno;
         if (e == ENOENT)
-            std::fprintf(stderr, "difiw: %s: command not found (type 'help')\n", args[0].c_str());
+            std::fprintf(stderr, L("difiw: %s: command not found (type 'help')\n",
+                                   "difiw: %s: команда не найдена (введите 'help')\n"), args[0].c_str());
         else
-            std::fprintf(stderr, "difiw: %s: %s\n", args[0].c_str(), std::strerror(e));
+            std::fprintf(stderr, "difiw: %s: %s\n", args[0].c_str(), errtext(e).c_str());
         _exit(e == ENOENT ? 127 : 126);
     }
     int status = 0;
@@ -624,9 +931,13 @@ void init_state() {
     char buf[PATH_MAX];
     if (getcwd(buf, sizeof buf)) g_cwd = buf;
     else g_cwd = "/";
+    load_lang();
+    if (g_lang == Lang::Ru) set_utf8_input();
 }
 
 std::string current_dir() { return g_cwd; }
+
+const char* msg(const char* en, const char* ru) { return L(en, ru); }
 
 void print_banner() {
     struct utsname u;
@@ -640,22 +951,59 @@ void print_banner() {
 |____/|_|_| |_| \_/\_/
 )", stdout);
     std::printf("\n Difiw OS %s %s\n", kVersion, kEdition);
-    if (ok) std::printf(" Kernel %s %s | host %s\n", u.sysname, u.release, u.nodename);
+    if (ok) std::printf(L(" Kernel %s %s | host %s\n", " Ядро %s %s | узел %s\n"), u.sysname, u.release, u.nodename);
     if (sysinfo(&si) == 0) {
         const std::uint64_t unit = si.mem_unit ? si.mem_unit : 1;
-        std::printf(" RAM %s | uptime %s\n", human_size(si.totalram * unit).c_str(),
+        std::printf(L(" RAM %s | uptime %s\n", " ОЗУ %s | работает %s\n"), size_text(si.totalram * unit).c_str(),
                     format_duration(si.uptime).c_str());
     }
-    std::printf(" Storage: RAM only; files are lost on reboot%s\n",
-                is_mountpoint_used("/data") ? " (except /data)" : "");
-    std::printf(" Type 'help' for the command list.\n\n");
+    std::printf(L(" Storage: RAM only; files are lost on reboot%s\n",
+                  " Хранение: только RAM; файлы пропадают после перезагрузки%s\n"),
+                is_mountpoint_used("/data") ? L(" (except /data)", " (кроме /data)") : "");
+    std::printf("%s", L(" Type 'help' for the command list. Language: ru / en\n\n",
+                        " Введите 'help' для списка команд. Язык: ru / en\n\n"));
 }
 
-int run_command(const std::vector<std::string>& args) {
-    if (args.empty()) return 0;
+int run_command(const std::vector<std::string>& args_in) {
+    if (args_in.empty()) return 0;
+    std::vector<std::string> args = args_in;
+
+    // "cd.." / "cd\" / "dir\x" without a space, as typed on Windows.
+    for (const char* base : {"cd", "dir"}) {
+        const std::size_t n = std::strlen(base);
+        if (args[0].size() > n && args[0].compare(0, n, base) == 0 &&
+            (args[0][n] == '.' || args[0][n] == '\\' || args[0][n] == '/')) {
+            args.insert(args.begin() + 1, args[0].substr(n));
+            args[0] = base;
+            break;
+        }
+    }
+    for (const auto& [alias, target] : kAliases)
+        if (args[0] == alias) { args[0] = target; break; }
+
+    // One-off language for a single command: "--ru" / "--en" at the end of any built-in,
+    // or a bare trailing "ru" / "en" for commands that take no path (help, info, mem, ...).
+    const Lang saved_lang = g_lang;
+    bool overridden = false;
+    const bool lang_cmd = args[0] == "lang" || args[0] == "en" || args[0] == "ru";
+    if (args.size() >= 2 && !lang_cmd) {
+        const std::string last = args.back();
+        const bool word = (last == "ru" || last == "en") &&
+                          (args[0] == "help" || args[0] == "info" || args[0] == "mem" ||
+                           args[0] == "time" || args[0] == "date" || args[0] == "ver");
+        if (last == "--ru" || last == "--en" || word) {
+            g_lang = last.back() == 'u' ? Lang::Ru : Lang::En;
+            args.pop_back();
+            overridden = true;
+        }
+    }
+
+    int rc = -1;
     for (const auto& b : kBuiltins)
-        if (args[0] == b.name) return b.fn(args);
-    return run_external(args);
+        if (args[0] == b.name) { rc = b.fn(args); break; }
+    if (rc == -1) rc = run_external(args);
+    if (overridden) g_lang = saved_lang;
+    return rc;
 }
 
 }  // namespace difiw

@@ -14,13 +14,14 @@ struct ParseResult {
 };
 
 // Splits a command line into arguments.
-// Supported: whitespace separation, 'single quotes' (literal),
-// "double quotes" (with \" and \\ escapes), backslash escape outside quotes,
-// '#' at the start of a word begins a comment.
+// Supported: whitespace separation, 'single' and "double" quotes (literal, no escapes;
+// use the other quote type to include a quote character), '#' at the start of a word
+// begins a comment. A backslash is an ordinary character (Windows-style paths).
 // Not supported: pipes, redirects, variables, globbing (documented limitation).
 ParseResult parse_line(const std::string& line);
 
 // Lexically normalizes `path` against `cwd` (resolves ".", ".." and "//").
+// Backslashes are treated as "/" separators.
 // A leading "~" expands to `home`. Empty `path` yields `cwd`.
 std::string normalize_path(const std::string& cwd, const std::string& path,
                            const std::string& home = "/root");

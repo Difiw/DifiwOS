@@ -7,11 +7,14 @@
 
 namespace difiw {
 
-constexpr const char* kVersion = "0.1.0";
+constexpr const char* kVersion = "0.2.0";
 constexpr const char* kEdition = "Core";
 
 // Returned by `exit` to leave the shell loop.
 constexpr int kExitShell = 1000;
+
+// Returns `ru` when the interface language is Russian, otherwise `en`.
+const char* msg(const char* en, const char* ru);
 
 void init_state();
 std::string current_dir();

@@ -5,6 +5,7 @@ Phases: boot + commands + poweroff, boot + reboot, persistence disk round trip.
 Usage: smoke_qemu.py <iso> <log-file>
 SPDX-License-Identifier: MIT
 """
+import codecs
 import os
 import queue
 import re
@@ -34,12 +35,13 @@ class Vm:
         threading.Thread(target=self._pump, daemon=True).start()
 
     def _pump(self):
+        dec = codecs.getincrementaldecoder("utf-8")(errors="replace")  # keeps multibyte chars intact
         while True:
             b = self.p.stdout.read1(4096)
             if not b:
                 self.q.put(None)
                 return
-            self.q.put(b.decode("utf-8", "replace"))
+            self.q.put(dec.decode(b))
 
     def _drain(self, timeout):
         try:
@@ -111,7 +113,6 @@ def check(name, cond, detail=""):
 
 def boot(iso, log, extra=None):
     vm = Vm(iso, extra, log)
-    vm.wait_for("GNU GRUB", 90)
     vm.wait_for(PROMPT, 150)
     return vm
 
@@ -124,12 +125,12 @@ def main():
             # ---- phase 1: boot and commands, then poweroff
             log.write("\n===== PHASE 1: boot + commands + poweroff =====\n")
             vm = boot(iso, log)
-            check("GRUB started", "GNU GRUB" in vm.buf)
+            check("GRUB menu skipped (timeout 0), kernel booted straight away", "GNU GRUB" not in vm.buf)
             check("kernel started (banner shows -difiw kernel)", re.search(r"Kernel Linux \S+-difiw", vm.buf) is not None)
             check("no kernel panic", "Kernel panic" not in vm.buf, vm.buf[-300:])
-            check("Difiw Shell banner", "Difiw OS 0.1.0 Core" in vm.buf)
+            check("Difiw Shell banner", "Difiw OS 0.2.0 Core" in vm.buf)
             out = vm.run("help");           check("help", "poweroff" in out and "reboot" in out, out)
-            out = vm.run("info");           check("info", "Difiw OS 0.1.0 Core" in out and "-difiw" in out, out)
+            out = vm.run("info");           check("info", "Difiw OS 0.2.0 Core" in out and "-difiw" in out, out)
             out = vm.run("mem");            check("mem", "Total:" in out and "Available:" in out, out)
             out = vm.run("disk /");         check("disk", "Filesystem of /" in out, out)
             out = vm.run("time");           check("time", re.search(r"\d\d:\d\d:\d\d \(UTC", out) is not None, out)
@@ -137,6 +138,11 @@ def main():
             out = vm.run("mkdir work");     check("mkdir", "difiw:" not in out and "error" not in out, out)
             out = vm.run("touch work/a.txt"); check("touch", "No such" not in out, out)
             out = vm.run("ls work");        check("ls", "a.txt" in out, out)
+            out = vm.run("dir");            check("dir (Windows-style)", "Directory of /root" in out and "<DIR>" in out and "work" in out, out)
+            out = vm.run("cd work");        check("cd work", "No such" not in out, out)
+            out = vm.run("cd..");           check("cd.. goes up", "No such" not in out, out)
+            out = vm.run("cd \\root\\work"); check("cd with backslashes", "No such" not in out, out)
+            out = vm.run("cd ..")
             out = vm.run("size work");      check("size", "work: " in out and "in 1 files" in out, out)
             out = vm.run("cd work");        check("cd", "No such" not in out, out)
             check("prompt follows cd", "difiw:/root/work> " in vm.buf)
@@ -151,6 +157,10 @@ def main():
             out = vm.run("del work");       check("del empty dir", "deleted" in out, out)
             out = vm.run("frobnicate");     check("unknown command is reported", "command not found" in out, out)
             out = vm.run("clear");          check("clear", "\x1b[" in out, out)
+            out = vm.run("ru");             check("ru switches language", "Язык интерфейса: русский" in out, out)
+            out = vm.run("help");           check("help in Russian", "встроенные команды" in out, out)
+            out = vm.run("echo тест привет"); check("Cyrillic text in echo", "тест привет" in out, out)
+            out = vm.run("en");             check("en switches back", "Interface language: English" in out, out)
             out = vm.run("info");           check("shell alive after errors", "Difiw OS" in out, out)
             vm.p.stdin.write(b"poweroff\r"); vm.p.stdin.flush()
             rc = vm.wait_exit(60)

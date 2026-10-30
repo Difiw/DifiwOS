@@ -24,7 +24,7 @@ expect "empty input is fine"      $'\n\n'                      '^$'
 expect "unterminated quote"       'echo "abc'                  'syntax error'
 expect "time format"              "time"                       '[0-9]{2}:[0-9]{2}:[0-9]{2} \(UTC'
 expect "date format"              "date"                       '[0-9]{4}-[0-9]{2}-[0-9]{2}'
-expect "info"                     "info"                       'Difiw OS 0.1.0 Core'
+expect "info"                     "info"                       'Difiw OS 0.2.0 Core'
 expect "mem"                      "mem"                        'Total:'
 expect "disk"                     "disk /"                     'Filesystem of /'
 expect "disk missing path"        "disk /nonexistent"          'No such file'
@@ -52,7 +52,36 @@ expect "ls too many args"         "ls a b"                     'invalid argument
 expect "quoted names"             $'touch "two words"\nls'     'two words'
 long="$(head -c 5000 /dev/zero | tr '\0' 'a')"
 expect "too long input"           "$long"                      'input too long'
-expect "shell survives"           $'ls /nonexistent\ninfo'     'Difiw OS 0.1.0 Core'
+expect "dir listing"              $'mkdir dd\ntouch ff.txt\ndir'  '<DIR> +dd$'
+expect "dir counts"               $'touch q1\ndir'           '[0-9]+ File\(s\)'
+expect "dir of missing path"      "dir /nonexistent"           'No such file'
+expect "cd .."                    $'mkdir up\ncd up\ncd ..\npwd' 'smoke\.[A-Za-z0-9]+$'
+expect "cd.. without space"       $'mkdir up2\ncd up2\ncd..\npwd' 'smoke\.[A-Za-z0-9]+$'
+expect "cd with backslash"        $'cd \\tmp\npwd'              '^/tmp$'
+expect "cd \\ to root"            $'cd\\\npwd'                  '^/$'
+expect "dir with backslash path"  $'dir ..\\..\\tmp'            'Directory of /tmp'
+expect "md / rd / type / cls"     $'md m1\nrd m1\ntouch t.txt\ntype t.txt\ncls\nver' 'Difiw OS 0.2.0 Core'
+expect "lang shows current"       "lang"                       'Language: en'
+expect "lang switch en/ru"        $'ru\nlang\nen\nlang'        'Язык: ru'
+expect "lang bad argument"        "lang de"                    'invalid arguments'
+expect "help ru (one-off Russian)" "help ru"                   'встроенные команды'
+expect "help ru shows <путь>"     "help ru"                    'read <файл>'
+expect "help cd ru"               "help cd ru"                 'формат: cd \[путь\]'
+expect "help de en stays English" "help cd en"                 'usage: cd \[path\]'
+expect "help en after ru"         $'ru\nhelp en'               'built-in commands'
+expect "one-off does not stick"   $'help ru\nhelp cd'          'usage: cd \[path\]'
+expect "--ru on any command"      "ls /nonexistent --ru"       'Нет такого файла'
+expect "usage error in Russian"   "del --ru"                   'формат: del \[-r \[-y\]\] <путь>'
+expect "info ru"                  "info ru"                    'Ядро:'
+out="$(DIFIW_LANG=ru "$SHELL_BIN" 2>&1 <<<$'help\nls /nonexistent\ndel /etc/passwd\ninfo')"
+if grep -q 'встроенные команды' <<<"$out" && grep -q 'Нет такого файла' <<<"$out" && grep -q 'защищённый' <<<"$out" && grep -q 'Язык: *ru' <<<"$out"; then
+    pass=$((pass+1)); echo "ok   - Russian interface messages"
+else failed=$((failed+1)); echo "FAIL - Russian interface messages"; echo "       $out"; fi
+out="$(DIFIW_LANG=ru "$SHELL_BIN" 2>&1 <<<$'echo тест привет\ntouch "файл номер один.txt"\nls')"
+if grep -q 'тест привет' <<<"$out" && grep -q 'файл номер один.txt' <<<"$out"; then
+    pass=$((pass+1)); echo "ok   - Cyrillic arguments and file names"
+else failed=$((failed+1)); echo "FAIL - Cyrillic arguments"; echo "       $out"; fi
+expect "shell survives"          $'ls /nonexistent\ninfo'     'Difiw OS 0.2.0 Core'
 
 echo "passed: $pass, failed: $failed"
 [ "$failed" -eq 0 ]

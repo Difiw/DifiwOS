@@ -8,6 +8,9 @@ export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 [ -n "$TERM" ] || export TERM=linux
 cd /root 2>/dev/null || cd /
 
+# Cyrillic font + Alt+Shift keyboard toggle on the VGA console (no-op on serial).
+/usr/libexec/difiw-console
+
 if [ -x /usr/bin/difiw-shell ]; then
     /usr/bin/difiw-shell
     rc=$?
