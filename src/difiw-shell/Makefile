@@ -9,11 +9,16 @@ LDFLAGS  ?=
 SRC = main.cpp commands.cpp parser.cpp format.cpp
 BUILD = build
 
-all: $(BUILD)/difiw-shell
+all: $(BUILD)/difiw-shell $(BUILD)/difiw-gui
 
 $(BUILD)/difiw-shell: $(SRC) commands.hpp parser.hpp format.hpp
 	mkdir -p $(BUILD)
 	$(CXX) $(STD) $(WARN) $(CXXFLAGS) -o $@ $(SRC) $(LDFLAGS)
+
+# Graphical shell (framebuffer + evdev); `--snapshot` renders a frame to a PPM without hardware.
+$(BUILD)/difiw-gui: gui.cpp parser.cpp format.cpp parser.hpp format.hpp
+	mkdir -p $(BUILD)
+	$(CXX) $(STD) -Wall -Wextra -Wpedantic -Wshadow $(CXXFLAGS) -o $@ gui.cpp parser.cpp format.cpp $(LDFLAGS)
 
 # Host unit tests (parser + formatting).
 $(BUILD)/test_core: ../../tests/test_core.cpp parser.cpp format.cpp parser.hpp format.hpp

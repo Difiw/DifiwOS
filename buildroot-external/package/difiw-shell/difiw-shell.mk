@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-DIFIW_SHELL_VERSION = 0.2.0
+DIFIW_SHELL_VERSION = 0.3.0
 DIFIW_SHELL_SITE = $(BR2_EXTERNAL_DIFIW_PATH)/../src/difiw-shell
 DIFIW_SHELL_SITE_METHOD = local
 DIFIW_SHELL_LICENSE = MIT
@@ -20,6 +20,7 @@ endef
 
 define DIFIW_SHELL_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/build/difiw-shell $(TARGET_DIR)/usr/bin/difiw-shell
+	$(INSTALL) -D -m 0755 $(@D)/build/difiw-gui $(TARGET_DIR)/usr/bin/difiw-gui
 endef
 
 $(eval $(generic-package))

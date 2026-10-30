@@ -52,7 +52,7 @@ echo "-- kernel configuration"
 KCFG="$(ls "$BR_OUT"/build/linux-*/.config 2>/dev/null | head -1 || true)"
 if [ -n "$KCFG" ]; then
     for s in CONFIG_BINFMT_ELF CONFIG_BLK_DEV_INITRD CONFIG_DEVTMPFS CONFIG_TMPFS CONFIG_PROC_FS CONFIG_SYSFS \
-             CONFIG_VT_CONSOLE CONFIG_VGA_CONSOLE CONFIG_SERIAL_8250_CONSOLE CONFIG_PCI CONFIG_ACPI \
+             CONFIG_VT_CONSOLE CONFIG_VGA_CONSOLE CONFIG_SERIAL_8250_CONSOLE CONFIG_PCI CONFIG_ACPI CONFIG_FB_VESA CONFIG_FRAMEBUFFER_CONSOLE CONFIG_INPUT_EVDEV CONFIG_USB_HID \
              CONFIG_RTC_DRV_CMOS CONFIG_SATA_AHCI CONFIG_EXT4_FS CONFIG_VIRTIO_BLK CONFIG_KEYBOARD_ATKBD; do
         grep -q "^$s=y" "$KCFG" && ok "$s=y" || bad "$s not built in"
     done
@@ -65,6 +65,9 @@ if [ "${1:-}" != "--no-qemu" ]; then
     echo "-- QEMU boot test"
     command -v qemu-system-x86_64 >/dev/null || die "qemu-system-x86_64 not installed"
     python3 -I "$PROJECT_ROOT/tests/smoke_qemu.py" "$ISO" "$ARTIFACTS/qemu-serial.log" && ok "QEMU test" || bad "QEMU test"
+    echo "-- QEMU graphical shell test (screen, mouse, keyboard, save, terminal)"
+    # not -I: the test imports its sibling smoke_qemu.py
+    python3 "$PROJECT_ROOT/tests/gui_qemu.py" "$ISO" "$ARTIFACTS/qemu-gui-serial.log" "$T/shots" && ok "QEMU GUI test" || bad "QEMU GUI test"
 fi
 
 echo

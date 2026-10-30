@@ -795,6 +795,32 @@ int cmd_ver(const std::vector<std::string>& args) {
 
 int cmd_exit(const std::vector<std::string>&) { return kExitShell; }
 
+int run_external(const std::vector<std::string>& args);
+
+// `screen`: start the graphical shell; the text console is restored when it exits.
+int cmd_screen(const std::vector<std::string>& args) {
+    if (args.size() != 1) return bad_usage("screen", "screen");
+    if (access("/dev/fb0", F_OK) != 0) {
+        std::fprintf(stderr, "%s", L("difiw: screen: no graphics (/dev/fb0): the bootloader did not set a graphics mode\n",
+                                     "difiw: screen: нет графики (/dev/fb0): загрузчик не включил графический режим\n"));
+        return 1;
+    }
+    if (access("/usr/bin/difiw-gui", X_OK) != 0) {
+        std::fprintf(stderr, "%s", L("difiw: screen: /usr/bin/difiw-gui is missing\n", "difiw: screen: нет /usr/bin/difiw-gui\n"));
+        return 1;
+    }
+    std::fflush(stdout);
+    return run_external({"/usr/bin/difiw-gui"});
+}
+
+// `terminal`: in the text console there is nothing to open; inside the GUI terminal it leaves the GUI.
+int cmd_terminal(const std::vector<std::string>& args) {
+    if (args.size() != 1) return bad_usage("terminal", "terminal");
+    std::printf("%s\n", L("You are already in the text terminal. Type 'screen' for the graphical shell.",
+                          "Вы уже в текстовом терминале. Команда 'screen' запускает графическую оболочку."));
+    return 0;
+}
+
 struct Builtin {
     const char* name;
     const char* usage;
@@ -827,6 +853,8 @@ const Builtin kBuiltins[] = {
     {"ver", "ver", "print the Difiw OS version", "версия Difiw OS", cmd_ver},
     {"reboot", "reboot", "sync and restart the machine", "записать данные и перезагрузить", cmd_reboot},
     {"poweroff", "poweroff", "sync and power off the machine", "записать данные и выключить", cmd_poweroff},
+    {"screen", "screen", "start the graphical shell (files, editor, terminal, power buttons)", "запустить графическую оболочку (файлы, редактор, терминал, кнопки питания)", cmd_screen},
+    {"terminal", "terminal", "text terminal; inside the graphical terminal it returns to the text console", "текстовый терминал; в терминале графической оболочки - возврат в текстовую консоль", cmd_terminal},
     {"exit", "exit", "close this session (a new one starts)", "закрыть сессию (запустится новая)", cmd_exit},
 };
 
@@ -837,7 +865,7 @@ const std::pair<const char*, const char*> kUsageRu[] = {
     {"del", "del [-r [-y]] <путь>"}, {"size", "size <путь>"}, {"clear", "clear"}, {"time", "time"},
     {"date", "date"}, {"info", "info"}, {"mem", "mem"}, {"disk", "disk [путь]"}, {"lang", "lang [en|ru]"},
     {"en", "en"}, {"ru", "ru"}, {"echo", "echo [текст...]"}, {"ver", "ver"}, {"reboot", "reboot"},
-    {"poweroff", "poweroff"}, {"exit", "exit"},
+    {"poweroff", "poweroff"}, {"screen", "screen"}, {"terminal", "terminal"}, {"exit", "exit"},
 };
 
 // Usage text of a built-in in the current language.

@@ -44,5 +44,11 @@ done
 [ -f "$SHARE/consolefonts/cyr-sun16.psfu.gz" ] || { echo "post-build: cyrillic font missing" >&2; exit 1; }
 [ -f "$SHARE/keymaps/i386/qwerty/ruwin_alt_sh-UTF-8.map.gz" ] || { echo "post-build: Russian keymap missing" >&2; exit 1; }
 
+# The graphical shell reads an uncompressed PSF console font (Latin + Cyrillic).
+install -d "$SHARE/difiw"
+gzip -dc "$SHARE/consolefonts/cyr-sun16.psfu.gz" > "$SHARE/difiw/font.psf"
+[ -s "$SHARE/difiw/font.psf" ] || { echo "post-build: font.psf is empty" >&2; exit 1; }
+
+rm -rf "$TARGET_DIR/usr/share/difiw/ru.kmap"
 chmod 0755 "$TARGET_DIR/etc/init.d/S10difiw-boot" "$TARGET_DIR/usr/libexec/difiw-session" "$TARGET_DIR/usr/libexec/difiw-console"
 chmod 0644 "$TARGET_DIR/etc/inittab"

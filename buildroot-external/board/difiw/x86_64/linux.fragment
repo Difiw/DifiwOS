@@ -1,4 +1,4 @@
-# Difiw OS 0.1.0 Core - kernel options merged on top of the x86_64 defconfig.
+# Difiw OS Core - kernel options merged on top of the x86_64 defconfig.
 # Branding is done through the version suffix only; kernel sources stay untouched.
 CONFIG_LOCALVERSION="-difiw"
 # CONFIG_LOCALVERSION_AUTO is not set
@@ -40,3 +40,16 @@ CONFIG_VIRTIO_NET=y
 # Optional DIFIWDATA disk (ext4) and ISO media
 CONFIG_EXT4_FS=y
 CONFIG_ISO9660_FS=y
+# Graphical shell: VESA framebuffer (mode set by GRUB), framebuffer console, evdev input
+CONFIG_FB=y
+CONFIG_FB_DEVICE=y
+CONFIG_FB_VESA=y
+CONFIG_FRAMEBUFFER_CONSOLE=y
+CONFIG_FONTS=y
+CONFIG_FONT_8x16=y
+CONFIG_INPUT_EVDEV=y
+CONFIG_INPUT_MOUSE=y
+CONFIG_MOUSE_PS2=y
+CONFIG_HID=y
+CONFIG_HID_GENERIC=y
+CONFIG_USB_HID=y
