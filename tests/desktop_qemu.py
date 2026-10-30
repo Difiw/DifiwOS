@@ -195,13 +195,33 @@ def run(iso, logpath, shots):
             check("D button opens the menu right above itself", ok, str(p))
             s.shot("04-menu")
             s.click_key("d"); time.sleep(0.6)
-            # keyboard: Super opens it, typing filters, Enter launches
+            # the Win/Super key does nothing by default; it only works after it is enabled in the settings
             s.qmp.key("meta_l"); time.sleep(0.8)
+            check("the Win key does not open the menu by default", not any("popup menu" in l for l in s.ctl("popups")))
+            s.ctl("set", "winkey", "on")
+            # keyboard: Win (enabled) opens it, typing filters, Enter launches
+            s.qmp.key("meta_l"); time.sleep(0.8)
+            check("with the setting on, the Win key opens the menu", any("popup menu" in l for l in s.ctl("popups")))
             s.qmp.text("mon"); time.sleep(0.4)
             s.shot("05-menu-search")
             s.qmp.key("ret"); time.sleep(3)
             inst = s.ctl("instances")
             check("menu search + keyboard launches an app", any("app=monitor" in l for l in inst), str(inst))
+
+            # the mouse pointer leaves no ghost images behind after quick moves over hot areas
+            s.ctl("popup", "close"); time.sleep(0.5)
+            pts = []
+            for key in ("dock:notes", "d", "tray:clock", "tray:tasks"):
+                m = re.search(r"rect=(\S+)", " ".join(s.ctl("locate", key)))
+                if m:
+                    x, y, w_, h_ = rect(m.group(1))
+                    pts.append((x + w_ // 2, y + h_ // 2))
+            for (px_, py_) in pts + [(300, 300), (700, 200)]:
+                s.ctl("move", str(px_), str(py_))
+                time.sleep(0.12)
+            time.sleep(0.8)
+            r = " ".join(s.ctl("fbdiff"))
+            check("the mouse pointer leaves no ghost images after quick moves (video memory == composed frame)", r.startswith("fbdiff=0 "), r)
 
             # background tasks popup: above its own button, inside the screen
             t = s.ctl("popup", "tasks")

@@ -147,8 +147,9 @@ void Desktop::on_pointer_move(int nx, int ny) {
             }
         }
     }
-    // cheap cursor update when nothing else changed
-    if (!dirty_ && fb_.mem) {
+    // The pointer image lives only in video memory: erase the old one from the frame and draw the new one right away
+    // (the frame diff in present() never touches the cursor area on its own).
+    if (fb_.mem) {
         blit_region(ox, oy, 12, 19);
         draw_cursor();
     }
@@ -279,7 +280,7 @@ void Desktop::on_key(int code, int state) {
         case KEY_LEFTALT: case KEY_RIGHTALT: alt_ = down; if (state == 1 && shift_) { layout_ru_ = !layout_ru_; dirty_ = true; } return;
         case KEY_CAPSLOCK: if (state == 1) caps_ = !caps_; return;
         case KEY_LEFTMETA: case KEY_RIGHTMETA:
-            if (state == 1) toggle_popup(PopupKind::Menu, dock_d_rect());
+            if (state == 1 && set_.winkey) toggle_popup(PopupKind::Menu, dock_d_rect());
             return;
         default: break;
     }
@@ -394,7 +395,7 @@ void Desktop::open_popup(PopupKind k, Rect anchor, const std::string& app_id) {
         case PopupKind::Notify: w = 360; h = 320; notify_seen_ = static_cast<int>(tasks_.journal().size()); break;
         case PopupKind::Power: w = 230; h = 200; break;
         case PopupKind::Layout: w = 210; h = 120; break;
-        case PopupKind::Settings: w = 360; h = 360; break;
+        case PopupKind::Settings: w = 380; h = 410; break;
         case PopupKind::AppWindows: w = 280; h = 70; break;
         case PopupKind::AppMenu: w = 220; h = 150; break;
         case PopupKind::Confirm: w = 340; h = 140; break;

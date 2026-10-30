@@ -22,6 +22,7 @@ struct Settings {
     bool reduce_motion = false;  // no animations
     bool transparency = true;    // glass panels; off = opaque graphite
     bool ru = true;              // interface language
+    bool winkey = false;         // the Win/Super key opens the D menu (off: it does nothing)
 };
 
 struct Options {

@@ -351,10 +351,10 @@ int draw_text(Surface& s, int x, int y, const std::string& text, u32 c, int scal
 std::string fit_text(const std::string& s, int max_px, int scale) {
     const int cols = std::max(0, max_px / std::max(1, g_font.w * scale));
     if (u8_len(s) <= cols) return s;
-    if (cols < 2) return "";
+    if (cols < 4) return s.substr(0, [&] { std::size_t i = 0; for (int k = 0; k < cols; ++k) i = u8_next(s, i); return i; }());
     std::size_t i = 0;
-    for (int k = 0; k < cols - 1; ++k) i = u8_next(s, i);
-    return s.substr(0, i) + "~";
+    for (int k = 0; k < cols - 3; ++k) i = u8_next(s, i);
+    return s.substr(0, i) + "...";
 }
 
 // ------------------------------------------------------------------- images

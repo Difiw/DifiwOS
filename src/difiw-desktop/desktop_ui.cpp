@@ -306,12 +306,16 @@ void Desktop::draw_window(const Window& w, bool focused) {
     fill(back_, c, kGraphite800);
     if (w.buf.px) {
         const int bw = std::min(w.buf.w, c.w), bh = std::min(w.buf.h, c.h);
-        for (int y = 0; y < bh; ++y) {
-            const int dy = c.y + y;
-            if (dy < back_.clip.y || dy >= back_.clip.bottom()) continue;
-            std::memcpy(back_.px + static_cast<std::size_t>(dy) * back_.stride + c.x, w.buf.px + static_cast<std::size_t>(y) * w.buf.stride,
-                        static_cast<std::size_t>(std::max(0, std::min(bw, back_.w - c.x))) * 4);
-        }
+        // copy only the part of each row that is inside the clip (a window may hang over a screen edge)
+        const int x0 = std::max(c.x, std::max(back_.clip.x, 0));
+        const int x1 = std::min(c.x + bw, std::min(back_.clip.right(), back_.w));
+        if (x1 > x0)
+            for (int y = 0; y < bh; ++y) {
+                const int dy = c.y + y;
+                if (dy < back_.clip.y || dy >= back_.clip.bottom() || dy < 0 || dy >= back_.h) continue;
+                std::memcpy(back_.px + static_cast<std::size_t>(dy) * back_.stride + x0,
+                            w.buf.px + static_cast<std::size_t>(y) * w.buf.stride + (x0 - c.x), static_cast<std::size_t>(x1 - x0) * 4);
+            }
     }
     back_.clip = save;
     if (e < 1.0f) {  // fade-in veil
@@ -559,7 +563,7 @@ void Desktop::draw_dock() {
     const Rect dr = dock_d_rect();
     draw_d_logo(dr, hover_amount("d"), press_amount("d"));
     if (popup(PopupKind::Menu)) rrect_outline(back_, dr.inset(-S(3)), S(24), 1, 0x60FFFFFFu);
-    add_hit(dr, [this, dr](int) { toggle_popup(PopupKind::Menu, dr); }, "d", t("Applications (Super)", "Приложения (Super)"));
+    add_hit(dr, [this, dr](int) { toggle_popup(PopupKind::Menu, dr); }, "d", set_.winkey ? t("Applications (Win)", "Приложения (Win)") : t("Applications", "Приложения"));
 
     // thin separators between the three zones
     const int sy = d.y + S(16), sh = d.h - S(32);
@@ -699,7 +703,7 @@ void Desktop::draw_menu(Popup& p, Rect r) {
         const std::string name = fit_text(a->name(set_.ru), cell.w - S(6), 1);
         draw_text(back_, cell.x + (cell.w - text_width(name, 1)) / 2, ir.bottom() + S(8), name, ca_(kText), 1);
         const std::string id = a->id;
-        add_hit(cell, [this, id](int) { launch_app(id); }, key, a->name(set_.ru));
+        add_hit(cell, [this, id](int) { launch_app(id); }, key);  // the name is already under the icon: no tooltip
     }
     // pagination
     if (pages > 1) {
@@ -771,7 +775,7 @@ void Desktop::draw_tasks(Popup& p, Rect r) {
             const std::string name = fit_text(bt.name, cell.w - S(4), 1);
             draw_text(back_, cell.x + (cell.w - text_width(name, 1)) / 2, ir.bottom() + S(6), name, ca_(kText), 1);
             const std::string key2 = bt.key;
-            add_hit(cell.intersect(area), [this, key2](int) { tasks_sel_ = key2; dirty_ = true; }, key, bt.name);
+            add_hit(cell.intersect(area), [this, key2](int) { tasks_sel_ = key2; dirty_ = true; }, key);
         }
     }
     back_.clip = save;
@@ -948,6 +952,7 @@ void Desktop::draw_settings(Rect r) {
     row(t("Transparency", "Прозрачность"), set_.transparency ? t("On", "Вкл") : t("Off", "Выкл"), [this](int) { set_.transparency = !set_.transparency; apply_settings(); });
     row(t("Interface scale", "Масштаб интерфейса"), set_.scale == 1 ? "100%" : "200%", [this](int) { set_.scale = set_.scale == 1 ? 2 : 1; close_all_popups(); apply_settings(); });
     row(t("Language", "Язык"), set_.ru ? "RU" : "EN", [this](int) { set_.ru = !set_.ru; apply_settings(); });
+    row(t("Win key opens menu", "Клавиша Win открывает меню"), set_.winkey ? t("On", "Вкл") : t("Off", "Выкл"), [this](int) { set_.winkey = !set_.winkey; apply_settings(); });
     draw_text(back_, r.x + pad, y + S(6), fit_text(t("Saved in /etc/difiw/desktop.conf", "Сохраняется в /etc/difiw/desktop.conf"), r.w - 2 * pad, 1), ca_(kTextFaint), 1);
 }
 

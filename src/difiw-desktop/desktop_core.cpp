@@ -66,6 +66,7 @@ bool Desktop::init(const Options& opt) {
         else if (k == "reduce_motion") set_.reduce_motion = v == "1";
         else if (k == "transparency") set_.transparency = v != "0";
         else if (k == "lang") set_.ru = v != "en";
+        else if (k == "winkey") set_.winkey = v == "1";
     }
     if (opt_.headless) {
         W_ = opt_.hw; H_ = opt_.hh;
@@ -172,7 +173,15 @@ bool Desktop::open_fb() {
 }
 
 void Desktop::enter_console_graphics() {
+    // The console to put into graphics mode must be a virtual terminal. When started from a serial line or in the
+    // background the controlling terminal is not one: use the active VT (/dev/tty0), otherwise the kernel keeps
+    // drawing its text (and cursor) over our pixels.
     tty_ = open("/dev/tty", O_RDWR | O_CLOEXEC);
+    char kt = 0;
+    if (tty_ < 0 || ioctl(tty_, KDGKBTYPE, &kt) != 0) {
+        if (tty_ >= 0) close(tty_);
+        tty_ = open("/dev/tty0", O_RDWR | O_CLOEXEC);
+    }
     if (tty_ < 0) tty_ = STDIN_FILENO;
     if (ioctl(tty_, KDGKBMODE, &old_kbmode_) != 0) old_kbmode_ = K_UNICODE;
     ioctl(tty_, KDSKBMODE, K_OFF);
@@ -769,6 +778,22 @@ std::vector<std::string> Desktop::control(const std::string& line) {
         out.push_back("windows_us=" + std::to_string(perf_win_us_) + " dock_us=" + std::to_string(perf_dock_us_) + " popups_us=" + std::to_string(perf_pop_us_));
         out.push_back("render_us=" + std::to_string(perf_render_us_) + " present_us=" + std::to_string(perf_present_us_) +
                       " windows=" + std::to_string(wins_.size()) + " fb=" + (fb_.mem ? "yes" : "no"));
+    } else if (cmd == "fbdiff") {
+        // Exact check of the video memory against the composed frame, ignoring the pointer image itself.
+        if (!fb_.mem || (fb_.bpp != 24 && fb_.bpp != 32)) { out.push_back("fbdiff=n/a"); return out; }
+        dirty_ = false; render(); present();
+        long bad = 0; int bx0 = W_, by0 = H_, bx1 = -1, by1 = -1;
+        for (int y = 0; y < H_; ++y) {
+            const unsigned char* row = fb_.mem + static_cast<std::size_t>(y) * fb_.stride;
+            for (int x = 0; x < W_; ++x) {
+                if (x >= mx_ && x < mx_ + 12 && y >= my_ && y < my_ + 19) continue;
+                const unsigned char* p = row + static_cast<std::size_t>(x) * static_cast<std::size_t>(fb_.bpp / 8);
+                const u32 want = back_.px[static_cast<std::size_t>(y) * back_.stride + x] & 0xFFFFFFu;
+                const u32 got = (static_cast<u32>(p[fb_.ro / 8]) << 16) | (static_cast<u32>(p[fb_.go / 8]) << 8) | p[fb_.bo / 8];
+                if (want != got) { ++bad; bx0 = std::min(bx0, x); by0 = std::min(by0, y); bx1 = std::max(bx1, x); by1 = std::max(by1, y); }
+            }
+        }
+        out.push_back("fbdiff=" + std::to_string(bad) + " bbox=" + std::to_string(bx0) + "," + std::to_string(by0) + "," + std::to_string(bx1) + "," + std::to_string(by1) + " cursor=" + std::to_string(mx_) + "," + std::to_string(my_));
     } else if (cmd == "move") {
         if (!need(3)) return out;
         on_pointer_move(std::atoi(a[1].c_str()), std::atoi(a[2].c_str()));
@@ -817,6 +842,7 @@ std::vector<std::string> Desktop::control(const std::string& line) {
         else if (a[1] == "reduce") set_.reduce_motion = a[2] == "on";
         else if (a[1] == "transparency") set_.transparency = a[2] != "off";
         else if (a[1] == "lang") set_.ru = a[2] != "en";
+        else if (a[1] == "winkey") set_.winkey = a[2] == "on";
         apply_settings();
         out.push_back("ok");
     } else if (cmd == "screen") {
@@ -850,7 +876,7 @@ void Desktop::save_settings() {
     mkdir(opt_.etcdir.c_str(), 0755);
     FILE* f = std::fopen((opt_.etcdir + "/desktop.conf").c_str(), "w");
     if (!f) return;
-    std::fprintf(f, "scale=%d\nreduce_motion=%d\ntransparency=%d\nlang=%s\n", set_.scale, set_.reduce_motion ? 1 : 0, set_.transparency ? 1 : 0, set_.ru ? "ru" : "en");
+    std::fprintf(f, "scale=%d\nreduce_motion=%d\ntransparency=%d\nlang=%s\nwinkey=%d\n", set_.scale, set_.reduce_motion ? 1 : 0, set_.transparency ? 1 : 0, set_.ru ? "ru" : "en", set_.winkey ? 1 : 0);
     std::fclose(f);
 }
 

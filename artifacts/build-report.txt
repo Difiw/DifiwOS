@@ -1,6 +1,6 @@
 Difiw OS 0.4.0 Core build report
-date:        2026-10-30T17:13:41Z
+date:        2026-10-30T17:36:59Z
 buildroot:   2026.08.1
 kernel:      7.1.13-difiw
 iso:         difiw-os-0.4.0-x86_64.iso (25210880 bytes)
-sha256:      c47627e72d8f32a39997904d089673a728830d6805e443e29a5ab79728947e23
+sha256:      b3b57113727d21b54cd9b936bf39050bf93d63d0784fedd3247116720ec28d30

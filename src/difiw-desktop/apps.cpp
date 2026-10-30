@@ -65,13 +65,14 @@ struct App {
     int sc() const { return std::max(1, cl.scale); }
     std::string t(const char* en, const char* r) const { return ru ? r : en; }
 
-    void button(Surface& s, Rect r, const std::string& label, bool primary = false, bool danger = false) const {
+    void button(Surface& s, Rect r, const std::string& label, bool primary = false, bool danger = false, int ls = 0) const {
+        if (ls < 1) ls = sc();
         const bool over = r.has(mx, my);
         u32 base = primary ? 0xFF2F5FC0u : danger ? 0xFF8A3A30u : kGraphite600;
         u32 hot = primary ? kAccentBlue : danger ? kDanger : kGraphite500;
         rrect(s, r, kRadiusControl * sc(), over ? hot : base);
         rrect_outline(s, r, kRadiusControl * sc(), 1, over ? 0x60FFFFFFu : 0x28FFFFFFu);
-        draw_text(s, r.x + (r.w - text_width(label, sc())) / 2, r.y + (r.h - font_h() * sc()) / 2, label, kText, sc());
+        draw_text(s, r.x + (r.w - text_width(label, ls)) / 2, r.y + (r.h - font_h() * ls) / 2, label, kText, ls);
     }
 
     void redraw() {
@@ -279,7 +280,12 @@ struct Calc : App {
         const std::string e = fit_text(expr.empty() ? "0" : expr, disp.w - 24 * sc(), sc() * 2);
         draw_text(s, disp.right() - 12 * sc() - text_width(e, sc() * 2), disp.y + 14 * sc(), e, kText, sc() * 2);
         if (!shown.empty() && shown != expr) draw_text(s, disp.x + 12 * sc(), disp.y + 4 * sc(), shown, shown == t("Error", "Ошибка") ? kDanger : kTextDim, sc());
-        for (int i = 0; i < 20; ++i) button(s, cell(i), label(i), i == 19, i == 0);
+        // operators are single thin glyphs: draw the keys at double size when the key is tall enough
+        for (int i = 0; i < 20; ++i) {
+            const Rect c = cell(i);
+            const int ls = c.h >= font_h() * sc() * 2 + 6 * sc() ? sc() * 2 : sc();
+            button(s, c, label(i), i == 19, i == 0, ls);
+        }
     }
     void mouse(const Event& e) override {
         if (e.mouse_kind != 1) return;
@@ -361,7 +367,8 @@ struct Terminal : App {
         std::string cmd;
         is >> cmd;
         if (cmd.empty()) return;
-        if (cmd == "terminal" || cmd == "exit") { cl.request(proto::RQ_QUIT_DESKTOP); return; }
+        if (cmd == "exit") { quit = true; return; }  // closes this Terminal window only
+        if (cmd == "terminal") { cl.request(proto::RQ_QUIT_DESKTOP); return; }  // back to the text console
         if (cmd == "poweroff") { cl.request(proto::RQ_POWEROFF); return; }
         if (cmd == "reboot") { cl.request(proto::RQ_REBOOT); return; }
         if (cmd == "screen") { add(t("The graphical shell is already running.", "Графическая оболочка уже запущена.")); return; }
@@ -569,8 +576,8 @@ int main(int argc, char** argv) {
     if (name == "notes") { Notes a; a.load(); return a.run(560, 400, "Notes"); }
     if (name == "calc") { Calc a; return a.run(300, 420, "Calculator"); }
     if (name == "terminal") { Terminal a; a.ru = lang_ru(); return a.run(640, 400, "Terminal"); }
-    if (name == "monitor") { Monitor a; return a.run(420, 260, "Monitor"); }
-    if (name == "probe") { Probe a; return a.run(520, 360, "Home check"); }
+    if (name == "monitor") { Monitor a; return a.run(420, 210, "Monitor"); }
+    if (name == "probe") { Probe a; return a.run(560, 440, "Home check"); }
     if (name == "worker") return worker_main();
     if (name == "reqtest") return reqtest_main();
     std::fprintf(stderr, "usage: difiw-apps notes|calc|terminal|monitor|probe|worker\n");
