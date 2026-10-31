@@ -8,7 +8,7 @@
 
 [🇬🇧 English](README.md) · 🇷🇺 Русский · [📘 Руководство](docs/manual.ru.md)
 
-![version](https://img.shields.io/badge/версия-0.5.5-3d7bff) ![arch](https://img.shields.io/badge/arch-x86__64-555) ![license](https://img.shields.io/badge/лицензия-MIT-green)
+![version](https://img.shields.io/badge/версия-0.5.6_dev-orange) ![arch](https://img.shields.io/badge/arch-x86__64-555) ![license](https://img.shields.io/badge/лицензия-MIT-green)
 
 </div>
 
@@ -32,7 +32,7 @@ Difiw OS загружается с одного ISO (BIOS, GRUB 2) в VirtualBox
 | **0.3.0** | Графическая оболочка, файлы/редактор/терминал | 21.8 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.3.0-x86_64.iso) |
 | **0.2.0** | Difiw Shell, en/ru | 21.5 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.2.0-x86_64.iso) |
 
-> В разработке: **0.5.6** (Netline на Chromium) — в ветке [`0.5.6`](../../tree/0.5.6), ещё не выпущена.
+> 🚧 Это ветка разработки **0.5.6** (Netline на Chromium). Стабильная версия — **0.5.5** в ветке [`main`](../../tree/main); образ 0.5.6 появится здесь, когда пройдёт проверку.
 
 ## Что есть
 
@@ -40,13 +40,31 @@ Difiw OS загружается с одного ISO (BIOS, GRUB 2) в VirtualBox
 - **Difiw Shell** — командная оболочка на русском и английском (Alt+Shift переключает раскладку).
 - **Приложения** — Файлы, Блокнот, Терминал, Монитор, Диктофон, Камера, Параметры (сеть, звук, персонализация).
 - **Сеть и звук** — DHCP, звук ALSA, USB-камера.
-- **Netline** — встроенный браузер (вкладки, закладки, загрузки, поиск по умолчанию — Яндекс). В 0.5.5 это лёгкий движок **без JavaScript**, поэтому сайты-приложения пока не работают.
+- **Netline** — настоящий браузер на Chromium 156 (CEF): JavaScript, современный CSS, HTTPS, cookies, localStorage/IndexedDB, WebSocket, WebAssembly. Поиск по умолчанию — Яндекс (меняется в меню).
 
 ![Параметры](docs/screenshots/053-p3-settings-net.png)
 
+## Браузер Netline (0.5.6)
+
+Вкладки, адресную строку, меню, закладки, историю и загрузки рисует сам Difiw; страницы отображает CEF в режиме off-screen.
+
+<img src="docs/screenshots/netline-newtab.png" alt="Стартовая страница Netline">
+
+Горячие клавиши: `Ctrl+T` новая вкладка, `Ctrl+W` закрыть, `Ctrl+L` адрес, `Ctrl+R`/`F5` обновить, `Ctrl+Tab` следующая вкладка, `Ctrl+Shift+T` вернуть вкладку, `Ctrl+F` поиск, `Ctrl+D` закладка, `Ctrl+H` история, `Ctrl+J` загрузки, `Ctrl +/-` масштаб, `Ctrl+Shift+N` приватное окно.
+
+**Статус:** движок и интерфейс проверены на обычном Linux (WSL2) на локальном стенде и реальных сайтах (ya.ru, yandex.ru, vk.com, github.com, youtube.com, ru.wikipedia.org). Запуск внутри ISO Difiw OS на glibc ещё проверяется — см. [docs/netline-test-results.md](docs/netline-test-results.md). Проприетарных кодеков (H.264/AAC) и DRM в сборке CEF нет, часть видео может не играть. ОС в этой ветке собрана на **glibc** (CEF бывает только для glibc), для ВМ нужно **не менее 4 ГБ ОЗУ**.
+
+Собрать и попробовать Netline на обычном Linux (SDL2):
+
+```bash
+./scripts/fetch-cef.sh
+cd src/netline-cef && cmake -S . -B build -G Ninja -DNETLINE_BACKEND=sdl && cmake --build build
+./build/netline https://ya.ru
+```
+
 ## Запуск в VirtualBox
 
-1. Создайте ВМ: тип **Linux**, версия **Other Linux (64-bit)**, 1–2 CPU, 1 ГБ ОЗУ. Диск не нужен (пустой диск один раз форматируется и хранит настройки).
+1. Создайте ВМ: тип **Linux**, версия **Other Linux (64-bit)**, 2 CPU, **4 ГБ ОЗУ и больше**. Диск не нужен (пустой диск один раз форматируется и хранит настройки).
 2. Система → **отключить EFI** (только BIOS). Система → Указывающее устройство → **USB-планшет**. Сеть: NAT.
 3. Носители → подключите скачанный ISO к оптическому приводу и загрузитесь с него.
 4. В приглашении `difiw:/root>` введите `screen` — запустится графический рабочий стол. `poweroff` и `reboot` выключают и перезагружают систему.
@@ -54,7 +72,7 @@ Difiw OS загружается с одного ISO (BIOS, GRUB 2) в VirtualBox
 ### QEMU
 
 ```bash
-qemu-system-x86_64 -m 1024 -cdrom difiw-os-0.5.5-x86_64.iso -vga std -netdev user,id=n0 -device e1000,netdev=n0
+qemu-system-x86_64 -m 4096 -cdrom difiw-os-<версия>-x86_64.iso -vga std -netdev user,id=n0 -device e1000,netdev=n0
 ```
 
 ## Сборка из исходников
@@ -62,7 +80,7 @@ qemu-system-x86_64 -m 1024 -cdrom difiw-os-0.5.5-x86_64.iso -vga std -netdev use
 Нужен Linux (или WSL2 с Ubuntu 24.04), около 30 ГБ диска и час-другой на первую сборку.
 
 ```bash
-./scripts/build.sh     # скачивает Buildroot и собирает ISO в artifacts/
+./scripts/build-glibc.sh   # Buildroot + официальный CEF (SHA-1 проверяется), ISO в artifacts/
 ./scripts/verify.sh    # загружает его в QEMU и проверяет основное
 ```
 

@@ -7,7 +7,7 @@
 
 namespace difiw {
 
-constexpr const char* kVersion = "0.5.5";
+constexpr const char* kVersion = "0.5.6";
 constexpr const char* kEdition = "Core";
 
 // Returned by `exit` to leave the shell loop.

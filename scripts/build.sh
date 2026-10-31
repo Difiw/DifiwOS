@@ -9,6 +9,7 @@ set -euo pipefail
 require_linux
 "$PROJECT_ROOT/scripts/check-host.sh"
 "$PROJECT_ROOT/scripts/configure.sh"
+"$PROJECT_ROOT/scripts/fetch-cef.sh"
 
 JOBS="$(jobs_count)"
 LOG="$BUILD_ROOT/build.log"
@@ -16,7 +17,7 @@ log "building with $JOBS parallel jobs; full log: $LOG"
 log "first build takes a long time (toolchain + kernel); later runs are incremental"
 
 # Buildroot does not notice edits in a local-site package: always rebuild Difiw Shell from src/.
-make -C "$BR_DIR" O="$BR_OUT" BR2_EXTERNAL="$MIRROR/buildroot-external" BR2_DL_DIR="$BR_DL" difiw-shell-dirclean difiw-desktop-dirclean >/dev/null
+make -C "$BR_DIR" O="$BR_OUT" BR2_EXTERNAL="$MIRROR/buildroot-external" BR2_DL_DIR="$BR_DL" difiw-shell-dirclean difiw-desktop-dirclean difiw-netline-dirclean >/dev/null
 # Overlay, post-build and post-image steps are re-run by Buildroot on every make.
 set +e
 make -C "$BR_DIR" O="$BR_OUT" BR2_EXTERNAL="$MIRROR/buildroot-external" BR2_DL_DIR="$BR_DL" \

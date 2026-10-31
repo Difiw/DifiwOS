@@ -18,6 +18,9 @@ find_blank_disk() {
 case "$1" in
 start)
     mkdir -p /root /data /homes
+    # POSIX shared memory (Chromium/Netline renderers)
+    mkdir -p /dev/shm
+    mountpoint -q /dev/shm || mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /dev/shm
     chmod 0700 /root
 
     # Persistence: an ext4 disk labelled DIFIWDATA is mounted on /data; homes and desktop settings live there.

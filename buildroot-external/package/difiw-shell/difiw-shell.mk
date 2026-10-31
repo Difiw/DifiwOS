@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-DIFIW_SHELL_VERSION = 0.5.5
+DIFIW_SHELL_VERSION = 0.5.6
 DIFIW_SHELL_SITE = $(BR2_EXTERNAL_DIFIW_PATH)/../src/difiw-shell
 DIFIW_SHELL_SITE_METHOD = local
 DIFIW_SHELL_LICENSE = MIT

@@ -1,4 +1,4 @@
-// Difiw 0.5.5 Settings: a normal window with pages (Network, Sound, Personalization, Language and input, About).
+// Difiw 0.5.6 Settings: a normal window with pages (Network, Sound, Personalization, Language and input, About).
 // Included by apps.cpp after apps_extra2.hpp, inside its anonymous namespace.
 // SPDX-License-Identifier: MIT
 #pragma once

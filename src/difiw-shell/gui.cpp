@@ -35,7 +35,7 @@ using namespace difiw;
 
 namespace {
 
-constexpr const char* kVersion = "0.5.5";
+constexpr const char* kVersion = "0.5.6";
 constexpr const char* kFontPath = "/usr/share/difiw/font.psf";
 constexpr const char* kLangFile = "/run/difiw-lang";
 constexpr std::size_t kMaxFile = 256 * 1024;

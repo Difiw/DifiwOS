@@ -28,6 +28,8 @@ Difiw Shell линкуется статически с musl и частями ru
 ## stb_image 2.30 (src/difiw-desktop/third_party/stb_image.h)
 Public domain (Unlicense) / MIT, автор Sean Barrett. Используется браузером Netline для показа JPEG/PNG/GIF/BMP.
 
-## NetSurf 3.11 (Difiw OS 0.5.5)
-NetSurf (GPL-2.0) and its libraries libcss, libdom, libhubbub, libparserutils, libwapcaplet, libnsfb, libnsgif, libnsbmp, libsvgtiny, libnslog, libnsutils, libnspsl, libutf8proc (MIT / compatible) are built from `netsurf-all-3.11.tar.gz`
-(https://download.netsurf-browser.org/netsurf/releases/source-full/). Difiw changes: `src/netsurf/difiw_surface.c` (replaces libnsfb's ram surface) and a small Unicode key patch in the framebuffer front end (`scripts/netsurf-build.sh`).
+## Chromium Embedded Framework 156.0.14 / Chromium 156.0.8078.48 (Difiw OS 0.5.6)
+CEF — BSD-3-Clause (Marshall Aubrey Greenblatt, The Chromium Embedded Framework Authors); Chromium и его сторонние компоненты — BSD-подобные и другие
+лицензии, полный перечень лежит в образе: `/opt/netline/CREDITS.html` и `/opt/netline/LICENSE.txt`. Бинарная сборка скачивается скриптом
+`scripts/fetch-cef.sh` с https://cef-builds.spotifycdn.com/ (минимальный дистрибутив linux64, SHA-1 `d091c82a8655113a34616c08cb340bf92310298d`) и проверяется.
+Проприетарные кодеки (H.264/AAC) и DRM в этой сборке CEF **не** включены. Netline (`src/netline-cef`) — MIT.

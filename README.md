@@ -8,7 +8,7 @@
 
 🇬🇧 English · [🇷🇺 Русский](README.ru.md) · [📘 Manual (RU)](docs/manual.ru.md)
 
-![version](https://img.shields.io/badge/version-0.5.5-3d7bff) ![arch](https://img.shields.io/badge/arch-x86__64-555) ![license](https://img.shields.io/badge/license-MIT-green)
+![version](https://img.shields.io/badge/version-0.5.6_dev-orange) ![arch](https://img.shields.io/badge/arch-x86__64-555) ![license](https://img.shields.io/badge/license-MIT-green)
 
 </div>
 
@@ -32,7 +32,7 @@ Pick a version and click **Download** (one file, no need to clone the repository
 | **0.3.0** | Graphical shell, files/editor/terminal | 21.8 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.3.0-x86_64.iso) |
 | **0.2.0** | Difiw Shell, en/ru | 21.5 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.2.0-x86_64.iso) |
 
-> Work in progress: **0.5.6** (Netline on Chromium) is developed in the [`0.5.6`](../../tree/0.5.6) branch and is not released yet.
+> 🚧 This is the **0.5.6** development branch (Netline on Chromium). The stable release is **0.5.5** in [`main`](../../tree/main); the 0.5.6 image will appear here once it passes testing.
 
 ## What you get
 
@@ -40,13 +40,31 @@ Pick a version and click **Download** (one file, no need to clone the repository
 - **Difiw Shell** – command shell with English/Russian UI (Alt+Shift switches the keyboard layout).
 - **Apps** – Files, Notepad, Terminal, Monitor, Voice Recorder, Camera, Settings (network, sound, personalisation).
 - **Network and sound** – DHCP networking, ALSA audio, USB webcam.
-- **Netline** – the built-in web browser (tabs, bookmarks, downloads, Yandex as default search). In 0.5.5 it uses a lightweight engine **without JavaScript**, so web apps do not work yet.
+- **Netline** – a real web browser: Chromium 156 via the Chromium Embedded Framework (JavaScript, modern CSS, HTTPS, cookies, localStorage/IndexedDB, WebSocket, WebAssembly). Yandex is the default search engine (switchable in the menu).
 
 ![Settings](docs/screenshots/053-p3-settings-net.png)
 
+## Netline browser (0.5.6)
+
+Tabs, address bar, menu, bookmarks, history and downloads are drawn by Difiw itself; web pages are rendered by CEF in off-screen mode.
+
+<img src="docs/screenshots/netline-newtab.png" alt="Netline start page">
+
+Shortcuts: `Ctrl+T` new tab, `Ctrl+W` close, `Ctrl+L` address bar, `Ctrl+R`/`F5` reload, `Ctrl+Tab` next tab, `Ctrl+Shift+T` reopen closed tab, `Ctrl+F` find, `Ctrl+D` bookmark, `Ctrl+H` history, `Ctrl+J` downloads, `Ctrl +/-` zoom, `Ctrl+Shift+N` private window.
+
+**Status:** the engine and the UI are verified on a regular Linux desktop (WSL2) with a local test stand and real sites (ya.ru, yandex.ru, vk.com, github.com, youtube.com, ru.wikipedia.org). Running inside the Difiw OS ISO (glibc build) is still being verified, see [docs/netline-test-results.md](docs/netline-test-results.md). Proprietary codecs (H.264/AAC) and DRM are not part of the CEF build, so some video may not play. The OS in this branch is built on **glibc** (CEF exists for glibc only); give the VM **at least 4 GB of RAM**.
+
+Build and try Netline on a normal Linux desktop (SDL2):
+
+```bash
+./scripts/fetch-cef.sh
+cd src/netline-cef && cmake -S . -B build -G Ninja -DNETLINE_BACKEND=sdl && cmake --build build
+./build/netline https://ya.ru
+```
+
 ## Run it in VirtualBox
 
-1. Create a VM: **Type** Linux, **Version** Other Linux (64-bit), 1–2 CPUs, 1 GB RAM. No hard disk is needed (an empty disk is formatted once and keeps your settings).
+1. Create a VM: **Type** Linux, **Version** Other Linux (64-bit), 2 CPUs, **4 GB RAM or more**. No hard disk is needed (an empty disk is formatted once and keeps your settings).
 2. System → **disable EFI** (BIOS only). System → Pointing device → **USB Tablet**. Network: NAT.
 3. Storage → attach the downloaded ISO to the optical drive and boot from it.
 4. At the `difiw:/root>` prompt type `screen` to start the graphical desktop. `poweroff` / `reboot` work as expected.
@@ -54,7 +72,7 @@ Pick a version and click **Download** (one file, no need to clone the repository
 ### QEMU
 
 ```bash
-qemu-system-x86_64 -m 1024 -cdrom difiw-os-0.5.5-x86_64.iso -vga std -netdev user,id=n0 -device e1000,netdev=n0
+qemu-system-x86_64 -m 4096 -cdrom difiw-os-<version>-x86_64.iso -vga std -netdev user,id=n0 -device e1000,netdev=n0
 ```
 
 ## Build from source
@@ -62,7 +80,7 @@ qemu-system-x86_64 -m 1024 -cdrom difiw-os-0.5.5-x86_64.iso -vga std -netdev use
 Needs Linux (or WSL2 with Ubuntu 24.04), about 30 GB of disk and an hour or more for the first build.
 
 ```bash
-./scripts/build.sh     # downloads Buildroot, builds the ISO into artifacts/
+./scripts/build-glibc.sh   # Buildroot + official CEF (SHA-1 checked), ISO goes to artifacts/
 ./scripts/verify.sh    # boots it in QEMU and checks the basics
 ```
 

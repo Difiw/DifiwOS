@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-DIFIW_DESKTOP_VERSION = 0.5.5
+DIFIW_DESKTOP_VERSION = 0.5.6
 DIFIW_DESKTOP_SITE = $(BR2_EXTERNAL_DIFIW_PATH)/../src/difiw-desktop
 DIFIW_DESKTOP_SITE_METHOD = local
 DIFIW_DESKTOP_LICENSE = MIT

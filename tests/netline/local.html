@@ -1,0 +1,25 @@
+<!doctype html><meta charset="utf-8"><title>running</title>
+<body>
+<script>
+const R = {};
+async function run() {
+  try { R.js = [1,2,3].map(x => x*2).join() === '2,4,6' && typeof WebAssembly === 'object' ? 'ok' : 'FAIL'; } catch (e) { R.js = 'FAIL'; }
+  try { localStorage.setItem('k','v'); R.localStorage = localStorage.getItem('k') === 'v' ? 'ok' : 'FAIL'; } catch (e) { R.localStorage = 'FAIL'; }
+  try { document.cookie = 'c=1; path=/'; R.cookie = document.cookie.includes('c=1') ? 'ok' : 'FAIL'; } catch (e) { R.cookie = 'FAIL'; }
+  try {
+    await new Promise((res, rej) => { const q = indexedDB.open('t', 1); q.onupgradeneeded = () => q.result.createObjectStore('s');
+      q.onsuccess = () => { const tx = q.result.transaction('s', 'readwrite'); tx.objectStore('s').put(5, 'a'); tx.oncomplete = res; tx.onerror = rej; }; q.onerror = rej; });
+    R.indexedDB = 'ok';
+  } catch (e) { R.indexedDB = 'FAIL'; }
+  try { const r = await fetch('/data.json'); R.fetch = (await r.json()).v === 42 ? 'ok' : 'FAIL'; } catch (e) { R.fetch = 'FAIL'; }
+  try { await new Promise((res, rej) => { const w = new WebSocket('ws://' + location.host.replace(/:\d+$/, '') + ':' + (parseInt(location.port) + 1) + '/');
+      w.onmessage = m => { R.websocket = m.data === 'hello' ? 'ok' : 'FAIL'; res(); }; w.onerror = () => rej(); setTimeout(rej, 3000); }); }
+  catch (e) { R.websocket = 'FAIL'; }
+  try { R.cyrillic = 'Привет'.length === 6 ? 'ok' : 'FAIL'; } catch (e) { R.cyrillic = 'FAIL'; }
+  try { const c = document.createElement('canvas').getContext('2d'); R.canvas = c ? 'ok' : 'FAIL'; } catch (e) { R.canvas = 'FAIL'; }
+  document.title = 'RESULT ' + Object.entries(R).map(([k, v]) => k + '=' + v).join(' ');
+}
+run();
+</script>
+<h1>Netline local test stand</h1><p>Привет, мир</p>
+</body>

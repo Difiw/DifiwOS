@@ -372,7 +372,7 @@ struct Terminal : App {
     int hidx = -1, scroll = 0;
 
     void banner() {
-        add("Difiw OS 0.5.5 Core");
+        add("Difiw OS 0.5.6 Core");
         add(t("Type help for the list of commands.", "Введите help, чтобы увидеть список команд."));
         add("");
         if (chdir("/homes/shared") != 0) {}
@@ -616,8 +616,6 @@ struct Probe : App {
 
 #include "apps_extra.hpp"
 #include "apps_extra2.hpp"
-#include "web.hpp"
-#include "browser.hpp"
 #include "settings_app.hpp"
 
 // ------------------------------------------------------------------- Worker
@@ -657,7 +655,6 @@ int main(int argc, char** argv) {
     if (name == "files") { Files a; a.init(); return a.run(720, 430, "Files", "Файлы"); }
     if (name == "recorder") { Recorder a; a.load(); return a.run(520, 400, "Voice Recorder", "Диктофон"); }
     if (name == "camera") { Camera a; return a.run(640, 480, "Camera", "Камера"); }
-    if (name == "netline") { Netline a; a.init(); return a.run(1000, 640, "Netline", "Netline"); }
     if (name == "settings") { Settings a; return a.run(780, 560, "Settings", "Параметры"); }
     if (name == "worker") return worker_main();
     if (name == "reqtest") return reqtest_main();
