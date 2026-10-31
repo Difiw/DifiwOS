@@ -1,0 +1,13 @@
+#!/bin/sh
+# udhcpc hook: the normal DHCP configuration, plus public DNS servers as a fallback (the virtual network DNS sometimes fails).
+# SPDX-License-Identifier: MIT
+/usr/share/udhcpc/default.script "$@"
+case "$1" in
+    bound|renew)
+        grep -q "^nameserver 1.1.1.1" /etc/resolv.conf 2>/dev/null || printf "nameserver 1.1.1.1
+nameserver 8.8.8.8
+options timeout:2 attempts:3
+" >> /etc/resolv.conf
+        ;;
+esac
+exit 0

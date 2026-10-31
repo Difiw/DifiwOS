@@ -24,7 +24,7 @@ expect "empty input is fine"      $'\n\n'                      '^$'
 expect "unterminated quote"       'echo "abc'                  'syntax error'
 expect "time format"              "time"                       '[0-9]{2}:[0-9]{2}:[0-9]{2} \(UTC'
 expect "date format"              "date"                       '[0-9]{4}-[0-9]{2}-[0-9]{2}'
-expect "info"                     "info"                       'Difiw OS 0.4.0 Core'
+expect "info"                     "info"                       'Difiw OS 0.5.5 Core'
 expect "mem"                      "mem"                        'Total:'
 expect "disk"                     "disk /"                     'Filesystem of /'
 expect "disk missing path"        "disk /nonexistent"          'No such file'
@@ -60,7 +60,7 @@ expect "cd.. without space"       $'mkdir up2\ncd up2\ncd..\npwd' 'smoke\.[A-Za-
 expect "cd with backslash"        $'cd \\tmp\npwd'              '^/tmp$'
 expect "cd \\ to root"            $'cd\\\npwd'                  '^/$'
 expect "dir with backslash path"  $'dir ..\\..\\tmp'            'Directory of /tmp'
-expect "md / rd / type / cls"     $'md m1\nrd m1\ntouch t.txt\ntype t.txt\ncls\nver' 'Difiw OS 0.4.0 Core'
+expect "md / rd / type / cls"     $'md m1\nrd m1\ntouch t.txt\ntype t.txt\ncls\nver' 'Difiw OS 0.5.5 Core'
 expect "lang shows current"       "lang"                       'Language: en'
 expect "lang switch en/ru"        $'ru\nlang\nen\nlang'        'Язык: ru'
 expect "lang bad argument"        "lang de"                    'invalid arguments'
@@ -84,7 +84,7 @@ out="$(DIFIW_LANG=ru "$SHELL_BIN" 2>&1 <<<$'echo тест привет\ntouch "�
 if grep -q 'тест привет' <<<"$out" && grep -q 'файл номер один.txt' <<<"$out"; then
     pass=$((pass+1)); echo "ok   - Cyrillic arguments and file names"
 else failed=$((failed+1)); echo "FAIL - Cyrillic arguments"; echo "       $out"; fi
-expect "shell survives"          $'ls /nonexistent\ninfo'     'Difiw OS 0.4.0 Core'
+expect "shell survives"          $'ls /nonexistent\ninfo'     'Difiw OS 0.5.5 Core'
 
 echo "passed: $pass, failed: $failed"
 [ "$failed" -eq 0 ]

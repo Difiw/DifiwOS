@@ -1,2 +1,3 @@
 source "$BR2_EXTERNAL_DIFIW_PATH/package/difiw-shell/Config.in"
 source "$BR2_EXTERNAL_DIFIW_PATH/package/difiw-desktop/Config.in"
+source "$BR2_EXTERNAL_DIFIW_PATH/package/difiw-netsurf/Config.in"

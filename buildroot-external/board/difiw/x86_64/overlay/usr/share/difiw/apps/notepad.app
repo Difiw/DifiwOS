@@ -1,0 +1,10 @@
+id=notepad
+name=Notepad
+name_ru=Блокнот
+category=work
+icon=notes
+exec=/usr/bin/difiw-apps
+args=notepad
+uid=20013
+perms=
+hidden=0

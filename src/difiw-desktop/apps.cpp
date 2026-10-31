@@ -1,10 +1,14 @@
 // difiw-apps: the test applications of Difiw OS (one multi-call binary).
-//   difiw-apps notes|calc|terminal|monitor|probe|worker
+//   difiw-apps notes|calc|terminal|monitor|probe|files|recorder|camera|worker
 // Each app is started by the desktop as its own unprivileged user with its own home.
 // SPDX-License-Identifier: MIT
 #include <dirent.h>
 #include <fcntl.h>
 #include <linux/input.h>
+#include <linux/videodev2.h>
+#include <strings.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <poll.h>
 #include <signal.h>
 #include <sys/stat.h>
@@ -20,8 +24,29 @@
 #include <ctime>
 #include <fstream>
 #include <sstream>
+#include <cctype>
+#include <functional>
+#include <map>
+
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_NO_STDIO
+#define STBI_NO_HDR
+#define STBI_NO_LINEAR
+#define STBI_ONLY_JPEG
+#define STBI_ONLY_PNG
+#define STBI_ONLY_GIF
+#define STBI_ONLY_BMP
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wall"
+#pragma GCC diagnostic ignored "-Wextra"
+#pragma GCC diagnostic ignored "-Wpedantic"
+#pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wcast-qual"
+#include "third_party/stb_image.h"
+#pragma GCC diagnostic pop
 
 #include "client.hpp"
+#include "sysinfo.hpp"
 #include "tokens.hpp"
 
 using namespace dg;
@@ -61,6 +86,7 @@ struct App {
     virtual int tick_ms() { return 1000; }
     virtual void on_close() { quit = true; }
     virtual void on_denied(int) {}
+    virtual void on_lang() {}
 
     int sc() const { return std::max(1, cl.scale); }
     std::string t(const char* en, const char* r) const { return ru ? r : en; }
@@ -75,21 +101,28 @@ struct App {
         draw_text(s, r.x + (r.w - text_width(label, ls)) / 2, r.y + (r.h - font_h() * ls) / 2, label, kText, ls);
     }
 
+    Surface off;  // apps draw here and the finished picture is copied to the shared buffer at once: the compositor never shows a half-drawn frame (flicker)
     void redraw() {
         Surface& s = cl.surface(win);
         w = s.w; h = s.h;
-        s.reset_clip();
-        fill(s, {0, 0, w, h}, kGraphite800);
-        draw(s);
+        if (off.w != w || off.h != h) off.alloc(w, h);
+        off.reset_clip();
+        fill(off, {0, 0, w, h}, kGraphite800);
+        draw(off);
+        for (int y = 0; y < h; ++y)
+            std::memcpy(s.px + static_cast<std::size_t>(y) * static_cast<std::size_t>(s.stride), off.px + static_cast<std::size_t>(y) * static_cast<std::size_t>(off.stride), static_cast<std::size_t>(w) * 4);
         cl.commit(win);
         dirty = false;
     }
 
-    int run(int ww, int wh, const std::string& title) {
+    std::string ten, tru;
+    long last_lang_ms = 0;
+    int run(int ww, int wh, const std::string& en, const std::string& ru_title) {
         if (!load_font(font_path().c_str())) { std::fprintf(stderr, "cannot load font\n"); return 2; }
         if (!cl.connect()) { std::fprintf(stderr, "cannot connect to the desktop\n"); return 3; }
         ru = lang_ru();
-        win = cl.create_window(ww * sc(), wh * sc(), title);
+        ten = en; tru = ru_title;
+        win = cl.create_window(ww * sc(), wh * sc(), ru ? tru : ten);
         if (win < 0) { std::fprintf(stderr, "cannot create window\n"); return 4; }
         long last_tick = mono_ms();
         redraw();
@@ -111,6 +144,11 @@ struct App {
                 got = cl.next_event(ev, 0);
             }
             if (mono_ms() - last_tick >= tick_ms()) { last_tick = mono_ms(); tick(); dirty = true; }
+            if (mono_ms() - last_lang_ms > 500) {  // the language is changed in Settings: titles and texts follow at once
+                last_lang_ms = mono_ms();
+                const bool nr = lang_ru();
+                if (nr != ru) { ru = nr; cl.set_title(win, ru ? tru : ten); on_lang(); dirty = true; }
+            }
             if (dirty && !quit) redraw();
         }
         return 0;
@@ -118,22 +156,30 @@ struct App {
 };
 
 // ------------------------------------------------------------------- Notes
-struct Notes : App {
+// Notepad: a plain text editor. Files live in the shared Documents folder (or any path the user types).
+struct Notepad : App {
     std::vector<std::string> lines{""};
     int cy = 0, cx = 0, top = 0;
-    bool changed = false;
-    std::string path, status;
+    bool changed = false, prompting = false, prompt_save = false;
+    std::string path, status, pin;
 
-    void load() {
-        const char* home = std::getenv("HOME");
-        path = std::string(home ? home : "/tmp") + "/notes.txt";
-        std::ifstream f(path);
+    void load() { lines = {""}; path.clear(); }
+    void ask_name(bool for_save) { prompting = true; prompt_save = for_save; pin.clear(); }
+    void open_file(std::string name) {
+        if (name.empty()) return;
+        if (name[0] != '/') name = "/homes/shared/Documents/" + name;
+        if (name.find('.', name.rfind('/')) == std::string::npos) name += ".txt";
+        if (prompt_save) { path = name; save(); return; }
+        std::ifstream f(name);
         std::string l;
-        lines.clear();
-        while (std::getline(f, l)) lines.push_back(l);
-        if (lines.empty()) lines.push_back("");
+        std::vector<std::string> v;
+        while (std::getline(f, l)) v.push_back(l);
+        if (v.empty()) v.push_back("");
+        lines = v; path = name; cy = cx = top = 0; changed = false;
+        status = f.is_open() ? t("Opened ", "Открыто: ") + name : t("New file: ", "Новый файл: ") + name;
     }
     bool save() {
+        if (path.empty()) { ask_name(true); return false; }
         std::ofstream f(path, std::ios::trunc);
         for (const auto& l : lines) f << l << "\n";
         f.flush();
@@ -142,11 +188,12 @@ struct Notes : App {
         status = t("Saved ", "Сохранено: ") + path;
         return true;
     }
-    void on_close() override { if (changed) save(); quit = true; }
+    void on_close() override { if (changed && !path.empty()) save(); quit = true; }
     Rect box() const { return {S_(12), S_(52), w - 2 * S_(12), h - S_(52) - S_(34)}; }
     int S_(int v) const { return v * sc(); }
     void draw(Surface& s) override {
-        draw_text(s, S_(14), S_(14), (changed ? "* " : "") + fit_text(path, w - S_(220), sc()), changed ? kWarn : kAccentBlue, sc());
+        draw_text(s, S_(14), S_(14), (changed ? "* " : "") + fit_text(path.empty() ? t("Untitled", "Без имени") : path, w - S_(340), sc()), changed ? kWarn : kAccentBlue, sc());
+        button(s, {w - S_(12) - S_(104) - S_(8) - S_(104), S_(8), S_(104), S_(32)}, t("Open", "Открыть"));
         const Rect sv = {w - S_(12) - S_(104), S_(8), S_(104), S_(32)};
         button(s, sv, t("Save", "Сохранить"), true);
         const Rect b = box();
@@ -164,12 +211,21 @@ struct Notes : App {
         const int ccol = u8_len(cl_.substr(0, static_cast<std::size_t>(cx)));
         fill(s, {b.x + S_(8) + ccol * font_w() * sc(), b.y + S_(5) + (cy - top) * fh, std::max(2, sc() * 2), fh}, kAccentBlue);
         s.clip = save;
-        draw_text(s, S_(14), h - S_(26), fit_text(status.empty() ? t("Ctrl+S saves. Files are kept in this app's private home.", "Ctrl+S сохраняет. Файлы лежат в личном доме приложения.") : status, w - S_(28), sc()), kTextDim, sc());
+        draw_text(s, S_(14), h - S_(26), fit_text(status.empty() ? t("Ctrl+S save, Ctrl+O open. Files: Shared/Documents.", "Ctrl+S сохранить, Ctrl+O открыть. Файлы: Общая папка/Документы.") : status, w - S_(28), sc()), kTextDim, sc());
+        if (prompting) {
+            const Rect pb = {S_(40), h / 2 - S_(40), w - S_(80), S_(80)};
+            rrect(s, pb, S_(12), 0xF0141925u);
+            rrect_outline(s, pb, S_(12), 2, kAccentBlue);
+            draw_text(s, pb.x + S_(14), pb.y + S_(10), t(prompt_save ? "Save as (file name):" : "Open (file name; a new name creates a file):", prompt_save ? "Сохранить как (имя файла):" : "Открыть (имя файла; новое имя создаст файл):"), kTextDim, sc());
+            draw_text(s, pb.x + S_(14), pb.y + S_(40), fit_text(pin, pb.w - S_(40), sc()) + "_", kText, sc());
+        }
         (void)cols;
     }
     void mouse(const Event& e) override {
         if (e.mouse_kind != 1) return;
         const Rect sv = {w - S_(12) - S_(104), S_(8), S_(104), S_(32)};
+        if (prompting) return;
+        if (Rect{w - S_(12) - S_(104) - S_(8) - S_(104), S_(8), S_(104), S_(32)}.has(e.x, e.y)) { ask_name(false); return; }
         if (sv.has(e.x, e.y)) { save(); return; }
         const Rect b = box();
         if (!b.has(e.x, e.y)) return;
@@ -184,6 +240,14 @@ struct Notes : App {
     }
     void key(const Event& e) override {
         std::string& L = lines[static_cast<std::size_t>(cy)];
+        if (prompting) {
+            if (e.code == KEY_ESC) { prompting = false; return; }
+            if (e.code == KEY_ENTER) { prompting = false; open_file(pin); return; }
+            if (e.code == KEY_BACKSPACE) { if (!pin.empty()) pin.erase(u8_prev(pin, pin.size())); return; }
+            if (!e.text.empty() && pin.size() < 200) pin += e.text;
+            return;
+        }
+        if ((e.mods & 2) && e.code == KEY_O) { ask_name(false); return; }
         if ((e.mods & 2) && e.code == KEY_S) { save(); return; }
         switch (e.code) {
             case KEY_ENTER: { const std::string tail = L.substr(static_cast<std::size_t>(cx)); L.erase(static_cast<std::size_t>(cx)); lines.insert(lines.begin() + cy + 1, tail); ++cy; cx = 0; changed = true; return; }
@@ -307,6 +371,12 @@ struct Terminal : App {
     std::vector<std::string> hist;
     int hidx = -1, scroll = 0;
 
+    void banner() {
+        add("Difiw OS 0.5.5 Core");
+        add(t("Type help for the list of commands.", "Введите help, чтобы увидеть список команд."));
+        add("");
+        if (chdir("/homes/shared") != 0) {}
+    }
     void add(const std::string& line) {
         const int cols = std::max(10, (w - 28 * sc()) / (font_w() * sc()));
         std::string rest = line;
@@ -388,8 +458,7 @@ struct Terminal : App {
     }
     void draw(Surface& s) override {
         const Rect b = {10 * sc(), 10 * sc(), w - 20 * sc(), h - 20 * sc()};
-        rrect(s, b, 10 * sc(), kGraphite900);
-        rrect_outline(s, b, 10 * sc(), 1, 0x30FFFFFFu);
+        fill(s, {0, 0, w, h}, 0xFF000000u);  // like the text console: plain black
         const int fh = font_h() * sc();
         const int rows = (b.h - 12 * sc()) / fh - 1;
         const int total = static_cast<int>(out.size());
@@ -545,6 +614,12 @@ struct Probe : App {
     }
 };
 
+#include "apps_extra.hpp"
+#include "apps_extra2.hpp"
+#include "web.hpp"
+#include "browser.hpp"
+#include "settings_app.hpp"
+
 // ------------------------------------------------------------------- Worker
 // A background app without a window: it is shown only in the background-tasks panel.
 int worker_main() {
@@ -573,13 +648,19 @@ int reqtest_main() {
 int main(int argc, char** argv) {
     const std::string name = argc > 1 ? argv[1] : "";
     signal(SIGPIPE, SIG_IGN);
-    if (name == "notes") { Notes a; a.load(); return a.run(560, 400, "Notes"); }
-    if (name == "calc") { Calc a; return a.run(300, 420, "Calculator"); }
-    if (name == "terminal") { Terminal a; a.ru = lang_ru(); return a.run(640, 400, "Terminal"); }
-    if (name == "monitor") { Monitor a; return a.run(420, 210, "Monitor"); }
-    if (name == "probe") { Probe a; return a.run(560, 440, "Home check"); }
+    if (name == "notes") { Todo a; a.load(); return a.run(460, 480, "Notes", "Заметки"); }
+    if (name == "notepad") { Notepad a; a.load(); return a.run(620, 440, "Notepad", "Блокнот"); }
+    if (name == "calc") { Calc a; return a.run(300, 420, "Calculator", "Калькулятор"); }
+    if (name == "terminal") { Terminal a; a.ru = lang_ru(); a.banner(); return a.run(660, 420, "Terminal", "Терминал"); }
+    if (name == "monitor") { Monitor a; return a.run(420, 210, "System Monitor", "Системный монитор"); }
+    if (name == "probe") { Probe a; return a.run(560, 440, "Home check", "Проверка дома"); }
+    if (name == "files") { Files a; a.init(); return a.run(720, 430, "Files", "Файлы"); }
+    if (name == "recorder") { Recorder a; a.load(); return a.run(520, 400, "Voice Recorder", "Диктофон"); }
+    if (name == "camera") { Camera a; return a.run(640, 480, "Camera", "Камера"); }
+    if (name == "netline") { Netline a; a.init(); return a.run(1000, 640, "Netline", "Netline"); }
+    if (name == "settings") { Settings a; return a.run(780, 560, "Settings", "Параметры"); }
     if (name == "worker") return worker_main();
     if (name == "reqtest") return reqtest_main();
-    std::fprintf(stderr, "usage: difiw-apps notes|calc|terminal|monitor|probe|worker\n");
+    std::fprintf(stderr, "usage: difiw-apps notes|notepad|settings|calc|terminal|monitor|probe|files|recorder|camera|worker\n");
     return 2;
 }

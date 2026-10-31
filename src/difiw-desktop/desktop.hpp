@@ -12,6 +12,7 @@
 
 #include "gfx.hpp"
 #include "proto.hpp"
+#include "sysinfo.hpp"
 #include "tasks.hpp"
 #include "tokens.hpp"
 
@@ -23,6 +24,9 @@ struct Settings {
     bool transparency = true;    // glass panels; off = opaque graphite
     bool ru = true;              // interface language
     bool winkey = false;         // the Win/Super key opens the D menu (off: it does nothing)
+    bool tips = true;            // hover tooltips
+    bool menu_list = false;      // application menu as a list (default: grid)
+    std::string wallpaper = "aurora";  // aurora | graphite | ocean | sunset | forest | file:<path.ppm>
 };
 
 struct Options {
@@ -48,7 +52,7 @@ struct Window {
     bool attached = false;
 };
 
-enum class PopupKind { Menu, Tasks, Net, Sound, Calendar, Notify, Power, Layout, Settings, AppWindows, AppMenu, Confirm };
+enum class PopupKind { Menu, Tasks, Net, Sound, Calendar, Notify, Power, Layout, AppWindows, AppMenu, Confirm };
 
 struct Popup {
     PopupKind kind = PopupKind::Menu;
@@ -164,7 +168,7 @@ private:
     void clamp_window(Window& w);
 
     // ---- window interaction (mouse capture)
-    enum class Drag { None, Move, Resize, Content } drag_ = Drag::None;
+    enum class Drag { None, Move, Resize, Content, Dock, Slider } drag_ = Drag::None;
     int drag_win_ = 0, drag_dx_ = 0, drag_dy_ = 0, drag_edge_ = 0;
     Rect drag_orig_;
     long last_title_click_ms_ = 0;
@@ -197,6 +201,41 @@ private:
     bool show_perf_ = false;   // F12: frame timings overlay
 
     void note_toast(const std::string& text);
+    // notifications shown in the bell panel (human-readable, unlike the technical journal)
+    struct Note { long t_ms = 0; std::string text; bool alert = false; };
+    std::vector<Note> notes_;
+    void notify(const std::string& text, bool alert = false);
+    int notify_unseen_ = 0;
+    std::string last_ip_;
+    long last_ip_check_ms_ = 0;
+    void check_network();
+    // dock: pinned apps, order, drag to reorder
+    std::vector<std::string> pinned_, dock_order_;
+    std::string dock_press_app_;
+    int dock_press_x_ = 0;
+    bool dock_moved_ = false;
+    DockItem dock_press_item_;
+    struct { int first_x = 0, slot = 1; float scroll = 0; } dock_geom_;
+    bool is_pinned(const std::string& id) const;
+    void toggle_pin(const std::string& id);
+    bool apply_kv(const std::string& k, const std::string& v);
+    void build_wallpaper();
+    void save_session();
+    void restore_session();
+    bool session_restored_ = false;
+    // system panels (network, sound): state kept while they are open
+    std::vector<sys::NetIf> nets_;
+    sys::Vol out_vol_, in_vol_;
+    std::string slider_key_;
+    Rect slider_rect_;
+    long vol_sent_ms_ = 0, net_refresh_ms_ = 0;
+    int net_check_ = 0;  // 0 unknown, 1 internet works, 2 no internet, 3 checking
+    void refresh_audio();
+    void refresh_net(bool check);
+    void slider_set(const std::string& key, int pct, bool final_value);
+    void net_action(const std::string& action, const std::string& ifn);
+    void draw_slider(Rect r, const std::string& key, int pct, bool on);
+    void open_settings(const std::string& page);
     void build_dock_items();
     // popups
     Popup* popup(PopupKind k);
@@ -239,7 +278,6 @@ private:
     void draw_notify(Rect r);
     void draw_power(Rect r);
     void draw_layout(Rect r);
-    void draw_settings(Rect r);
     void draw_app_windows(Popup& p, Rect r);
     void draw_app_menu(Popup& p, Rect r);
     void draw_confirm(Popup& p, Rect r);
@@ -257,6 +295,8 @@ private:
     bool animating() const;
     void update_animations(long dt_ms);
     std::vector<const AppDef*> menu_apps() const;
+    int menu_per_page() const { return set_.menu_list ? 7 : tok::kMenuCols * 4; }
+    int menu_cols() const { return set_.menu_list ? 1 : tok::kMenuCols; }
     std::string category_label(int idx) const;
     std::vector<std::string> categories() const;
 

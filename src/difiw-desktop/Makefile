@@ -8,7 +8,7 @@ LDFLAGS  ?=
 BUILD     = build
 
 COMMON = gfx.cpp
-DESK   = desktop_core.cpp desktop_input.cpp desktop_ui.cpp desktop_main.cpp tasks.cpp $(COMMON)
+DESK   = desktop_core.cpp desktop_input.cpp desktop_ui.cpp desktop_panels.cpp desktop_main.cpp tasks.cpp $(COMMON)
 APPS   = apps.cpp client.cpp $(COMMON)
 HDRS   = $(wildcard *.hpp)
 

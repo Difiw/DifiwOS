@@ -34,7 +34,8 @@ class Session:
         self.tmp = tempfile.mkdtemp(prefix="difiw-desk-")
         self.sock = os.path.join(self.tmp, "qmp.sock")
         self.vm = sq.Vm(iso, ["-vga", "std", "-qmp", f"unix:{self.sock},server,nowait", "-device", "qemu-xhci",
-                              "-device", "usb-tablet", "-device", "usb-kbd"], log)
+                              "-device", "usb-tablet", "-device", "usb-kbd",
+                              "-audiodev", "none,id=snd0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=snd0"], log)
         self.vm.wait_for(sq.PROMPT, 150)
         self.qmp = gq.Qmp(self.sock)
 
@@ -236,7 +237,7 @@ def run(iso, logpath, shots):
 
             # every small popup stays inside the screen
             inside = True
-            for kind in ("net", "sound", "calendar", "notify", "layout", "settings"):
+            for kind in ("net", "sound", "calendar", "notify", "layout"):
                 t = s.ctl("popup", kind)
                 m = re.search(r"rect=(\S+)", " ".join(t))
                 if not m:
@@ -275,10 +276,10 @@ def run(iso, logpath, shots):
             time.sleep(1)
             res = s.sh("read /homes/user/apps/probe/probe-result.txt")
             check("isolation probe: all checks passed", "PASS" in res and "FAIL" not in res, res)
-            check("an app cannot read another app's home", "чтение дома" in res and "Permission denied" in res, res)
-            check("an app cannot change /usr or /etc", res.count("запись в /") >= 2 and "FAIL" not in res, res)
+            check("an app cannot read another app's home", "read home" in res and "Permission denied" in res, res)
+            check("an app cannot change /usr or /etc", res.count("write to /") >= 2 and "FAIL" not in res, res)
 
-            check("other users' processes are hidden from an app (hidepid)", "чужие процессы не видны" in res and "FAIL" not in res, res)
+            check("other users' processes are hidden from an app (hidepid)", "processes are hidden" in res and "FAIL" not in res, res)
             # an app without the permission is refused when it asks to quit the desktop
             s.ctl("launch", "reqtest"); time.sleep(3)
             lg = " ".join(s.ctl("log"))
@@ -296,6 +297,78 @@ def run(iso, logpath, shots):
             s.ctl("close", iid); time.sleep(3.5)
             d = s.ctl("dock")
             check("closing an app removes its icon from the panel", not any("item calc" in l for l in d), str(d))
+
+            # 0.5.0: new apps start in their own windows; network and sound hardware are detected
+            for app in ("files", "recorder", "camera"):
+                s.ctl("launch", app)
+            time.sleep(3)
+            w5 = " ".join(s.ctl("windows"))
+            check("Files, Voice Recorder and Camera open their windows", all(f"title={n}" in w5 for n in ("Files", "Voice Recorder", "Camera")), w5[:300])
+            s.shot("10-new-apps")
+            ipinfo = s.sh("sh -c 'ip -4 addr show | grep inet'")
+            check("the network adapter gets an address by DHCP", "10.0.2." in ipinfo, ipinfo)
+            cards = s.sh("read /proc/asound/cards")
+            check("a sound card is detected (ALSA)", "HDA" in cards or "Intel" in cards, cards)
+            rec = s.sh("sh -c 'arecord -q -d 1 -D plughw:0,0 -f S16_LE -r 16000 -c 1 -t wav /tmp/t.wav; aplay -q -D plughw:0,0 /tmp/t.wav; echo AUDIO_RC=$?'", 40)
+            check("ALSA can record and play back (arecord/aplay)", "AUDIO_RC=0" in rec, rec[-200:])
+            for app in ("files", "recorder", "camera"):
+                for l in s.ctl("instances"):
+                    if f"app={app} " in l:
+                        s.ctl("close", parse_kv(l)["iid"])
+            time.sleep(3)
+
+            # 0.5.1: Settings is a normal window; its changes reach the desktop and are saved; apps can be pinned
+            s.ctl("launch", "settings"); time.sleep(2)
+            w6 = " ".join(s.ctl("windows"))
+            check("Settings opens as its own window", "title=Settings" in w6, w6[:300])
+            s.ctl("set", "wallpaper", "ocean"); s.ctl("set", "menu", "list"); s.ctl("set", "tips", "off"); time.sleep(1)
+            conf = s.sh("read /etc/difiw/desktop.conf")
+            check("settings (wallpaper, menu view, tips) are saved to the config file", "wallpaper=ocean" in conf and "menu=list" in conf and "tips=0" in conf, conf)
+            s.shot("11-wallpaper-ocean")
+            s.ctl("popup", "menu"); time.sleep(0.8)
+            check("the menu opens in list view", any("popup menu" in l for l in s.ctl("popups")))
+            s.shot("12-menu-list")
+            s.ctl("popup", "close")
+            s.ctl("set", "menu", "grid"); s.ctl("set", "tips", "on"); s.ctl("set", "wallpaper", "aurora")
+            s.ctl("pin", "recorder"); time.sleep(0.5)
+            d6 = s.ctl("dock")
+            check("a pinned app stays in the panel without running", any(l.startswith("item recorder") and "windows=0" in l for l in d6), str(d6))
+            s.ctl("pin", "recorder")
+            for l in s.ctl("instances"):
+                if "app=settings " in l:
+                    s.ctl("close", parse_kv(l)["iid"])
+            time.sleep(2.5)
+
+            # 0.5.3: public DNS fallback, network/sound panels, internet state
+            rc = s.sh("read /etc/resolv.conf")
+            check("DNS has fallback servers (1.1.1.1)", "1.1.1.1" in rc, rc)
+            s.ctl("popup", "net"); time.sleep(4)
+            pn = s.ctl("popups")
+            check("the network panel opens and reports internet access", any("popup net" in l for l in pn) and s.sh("read /run/difiw/net.state").strip().startswith("200"), str(pn))
+            s.ctl("popup", "close")
+            # 0.5.2: the browser (needs the network of the test VM, which reaches the internet through the host)
+            tls = ""
+            for _ in range(4):
+                tls = s.sh("sh -c 'curl -sS -m 25 -o /dev/null -w CODE=%{http_code} https://example.com/ 2>&1; echo rc=$?'", 40)
+                if "CODE=200" in tls:
+                    break
+                time.sleep(4)
+            check("HTTPS works with certificate verification (curl)", "CODE=200" in tls, tls[-200:])
+            s.ctl("launch", "netline"); time.sleep(3)
+            w7 = " ".join(s.ctl("windows"))
+            check("Netline opens its window", "title=Netline" in w7, w7[:300])
+            s.ctl("type", "example.com"); s.ctl("key", "28"); time.sleep(9)
+            img = s.shot("14-netline-example")
+            nw = []
+            for l in s.ctl("windows"):
+                if "title=Netline" in l:
+                    nw = rect(re.search(r"content=(\S+)", l).group(1))
+            px = gq.pixel(img, nw[0] + nw[2] // 2, nw[1] + nw[3] // 2 + 60) if nw else (0, 0, 0)
+            check("Netline shows a loaded page (white page area)", min(px[:3]) > 230, str(px))
+            for l in s.ctl("instances"):
+                if "app=netline " in l:
+                    s.ctl("close", parse_kv(l)["iid"])
+            time.sleep(2.5)
 
             # right click -> app menu
             s.qmp.cmd("input-send-event", {"events": [{"type": "abs", "data": {"axis": "x", "value": 1}}]})
@@ -343,7 +416,6 @@ def run(iso, logpath, shots):
             s.ctl("set", "transparency", "on")
 
             # power buttons: confirm dialog, then the machine really powers off
-            s.ctl("popup", "settings"); s.ctl("popup", "close")
             s.click_key("d"); time.sleep(0.6)
             r = s.ctl("popup", "menu")
             # the power button inside the menu

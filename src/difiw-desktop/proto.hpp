@@ -39,7 +39,7 @@ enum Type : std::uint32_t {
     X_REPLY = 201, // s = one line of output; i0=1 when this is the last line
 };
 
-enum Request : int { RQ_QUIT_DESKTOP = 1, RQ_POWEROFF = 2, RQ_REBOOT = 3 };
+enum Request : int { RQ_QUIT_DESKTOP = 1, RQ_POWEROFF = 2, RQ_REBOOT = 3, RQ_SET = 4, RQ_NET = 5 };  // RQ_SET: s = "key=value" (settings)
 
 struct Msg {
     std::uint32_t type = 0;

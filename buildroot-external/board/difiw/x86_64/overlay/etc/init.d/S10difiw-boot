@@ -1,17 +1,41 @@
 #!/bin/sh
-# Difiw OS boot tasks: optional data disk and serial console session.
+# Difiw OS boot tasks: data disk (settings and homes survive reboots) and serial console session.
 # SPDX-License-Identifier: MIT
+
+# A disk that is completely empty (first MiB all zero, no filesystem) is formatted once as the system data disk.
+# Anything that already holds data or a filesystem is left alone.
+find_blank_disk() {
+    for d in /dev/sda /dev/vda /dev/hda /dev/nvme0n1; do
+        [ -b "$d" ] || continue
+        [ -z "$(blkid "$d" 2>/dev/null)" ] || continue
+        [ -z "$(dd if="$d" bs=1M count=1 2>/dev/null | tr -d '\000' | head -c 1)" ] || continue
+        echo "$d"
+        return 0
+    done
+    return 1
+}
 
 case "$1" in
 start)
-    mkdir -p /root /data
+    mkdir -p /root /data /homes
     chmod 0700 /root
 
-    # Optional persistence: an ext4 disk labelled DIFIWDATA is mounted on /data.
+    # Persistence: an ext4 disk labelled DIFIWDATA is mounted on /data; homes and desktop settings live there.
     dev="$(findfs LABEL=DIFIWDATA 2>/dev/null)" || dev=""
+    if [ -z "$dev" ]; then
+        blank="$(find_blank_disk)" || blank=""
+        if [ -n "$blank" ] && command -v mke2fs >/dev/null 2>&1; then
+            echo "Difiw: preparing the empty disk $blank as the data disk"
+            mke2fs -q -F -t ext4 -L DIFIWDATA "$blank" >/dev/null 2>&1 && dev="$blank"
+        fi
+    fi
     if [ -n "$dev" ]; then
         if mount -t ext4 -o rw,noatime "$dev" /data; then
             echo "Difiw: data disk $dev mounted on /data"
+            mkdir -p /data/homes /data/difiw
+            mount -o bind /data/homes /homes
+            mkdir -p /etc/difiw
+            ln -sf /data/difiw/desktop.conf /etc/difiw/desktop.conf
         else
             echo "Difiw: data disk $dev found but could not be mounted as ext4"
         fi

@@ -24,3 +24,10 @@ Difiw Shell линкуется статически с musl и частями ru
 тексты лицензий и исходные архивы в `artifacts/legal-info/`.
 
 **Это не юридический аудит.** Перед публичным распространением ISO нужен отдельный license audit.
+
+## stb_image 2.30 (src/difiw-desktop/third_party/stb_image.h)
+Public domain (Unlicense) / MIT, автор Sean Barrett. Используется браузером Netline для показа JPEG/PNG/GIF/BMP.
+
+## NetSurf 3.11 (Difiw OS 0.5.5)
+NetSurf (GPL-2.0) and its libraries libcss, libdom, libhubbub, libparserutils, libwapcaplet, libnsfb, libnsgif, libnsbmp, libsvgtiny, libnslog, libnsutils, libnspsl, libutf8proc (MIT / compatible) are built from `netsurf-all-3.11.tar.gz`
+(https://download.netsurf-browser.org/netsurf/releases/source-full/). Difiw changes: `src/netsurf/difiw_surface.c` (replaces libnsfb's ram surface) and a small Unicode key patch in the framebuffer front end (`scripts/netsurf-build.sh`).

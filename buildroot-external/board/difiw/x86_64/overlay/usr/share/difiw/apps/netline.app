@@ -1,0 +1,10 @@
+id=netline
+name=Netline
+name_ru=Netline
+category=work
+icon=img:netline
+exec=/usr/libexec/difiw-netsurf
+args=
+uid=20015
+perms=
+hidden=0

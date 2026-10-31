@@ -55,6 +55,12 @@ gzip -dc "$BOARD_DIR/../../../../assets/wallpaper.ppm.gz" > "$SHARE/difiw/wallpa
 [ -s "$SHARE/difiw/wallpaper.ppm" ] || { echo "post-build: wallpaper.ppm is empty" >&2; exit 1; }
 chmod 0644 "$SHARE/difiw/font.psf" "$SHARE/difiw/wallpaper.ppm"
 chmod 0755 "$TARGET_DIR/etc/difiw" "$SHARE/difiw/apps" "$TARGET_DIR/etc/difiw/services.d"
+install -d "$SHARE/difiw/icons"
+chmod 0755 "$SHARE/difiw/icons"
+chmod 0644 "$SHARE"/difiw/icons/*
 chmod 0644 "$SHARE"/difiw/apps/*.app "$TARGET_DIR"/etc/difiw/services.d/*.svc
-chmod 0755 "$TARGET_DIR/etc/init.d/S10difiw-boot" "$TARGET_DIR/usr/libexec/difiw-session" "$TARGET_DIR/usr/libexec/difiw-console"
+chmod 0755 "$TARGET_DIR/etc/init.d/S10difiw-boot" "$TARGET_DIR/etc/init.d/S41difiw-net" "$TARGET_DIR/etc/init.d/S42difiw-sound" "$TARGET_DIR/usr/libexec/difiw-session" "$TARGET_DIR/usr/libexec/difiw-console"
+chmod 0755 "$TARGET_DIR/etc/difiw/udhcpc.script"
+install -d "$SHARE/difiw/sounds"
+chmod 0644 "$SHARE"/difiw/sounds/*
 chmod 0644 "$TARGET_DIR/etc/inittab"

@@ -1,6 +1,6 @@
 id=monitor
-name=Monitor
-name_ru=Монитор
+name=System Monitor
+name_ru=Системный монитор
 category=utility
 icon=monitor
 exec=/usr/bin/difiw-apps

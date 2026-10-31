@@ -1,0 +1,13 @@
+#!/bin/sh
+# Difiw OS: sound is usable right after boot (the mixer starts muted on most virtual cards).
+# SPDX-License-Identifier: MIT
+case "$1" in
+start)
+    [ -d /proc/asound ] || exit 0
+    for c in Master PCM Speaker Headphone; do amixer -q sset "$c" 80% unmute >/dev/null 2>&1; done
+    amixer -q sset PCM 100% unmute >/dev/null 2>&1
+    for c in Capture Mic; do amixer -q sset "$c" 80% cap unmute >/dev/null 2>&1; done
+    ;;
+stop|restart|reload) ;;
+esac
+exit 0

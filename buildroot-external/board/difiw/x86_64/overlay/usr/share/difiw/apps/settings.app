@@ -1,0 +1,10 @@
+id=settings
+name=Settings
+name_ru=Параметры
+category=system
+icon=gear
+exec=/usr/bin/difiw-apps
+args=settings
+uid=20014
+perms=settings,network,audio
+hidden=0

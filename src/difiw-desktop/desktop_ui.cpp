@@ -11,9 +11,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <map>
 
 #include "desktop.hpp"
 
@@ -26,11 +28,6 @@ using namespace tok;
 
 namespace {
 
-AppDef& settings_app() {
-    static AppDef a;
-    a.id = "@settings"; a.name_en = "Settings"; a.name_ru = "Параметры"; a.category = "system"; a.icon = "gear";
-    return a;
-}
 
 std::string encode_cp(std::uint32_t cp) {
     std::string o;
@@ -71,6 +68,8 @@ void icon_colors(const std::string& kind, u32& top, u32& bottom) {
     else if (kind == "probe") { top = 0xFF5ED083; bottom = 0xFF2E8B57; }
     else if (kind == "folder") { top = 0xFFF5C25B; bottom = 0xFFC98A1F; }
     else if (kind == "shield") { top = 0xFF4C8DFF; bottom = 0xFF2A4FA8; }
+    else if (kind == "mic") { top = 0xFFFF7A7A; bottom = 0xFFC23A55; }
+    else if (kind == "camera") { top = 0xFF52C7F2; bottom = 0xFF2670B8; }
     else { top = 0xFF6B7690; bottom = 0xFF3A4358; }
 }
 
@@ -155,7 +154,6 @@ std::vector<const AppDef*> Desktop::menu_apps() const {
         out.push_back(a);
     };
     for (const auto& a : tasks_.apps()) consider(&a);
-    consider(&settings_app());
     return out;
 }
 
@@ -194,8 +192,53 @@ static void glyph_gear(Surface& s, int cx, int cy, int rad, u32 c) {
     circle(s, cx, cy, std::max(1, rad / 6), c);
 }
 
+// Applications with their own picture (icon=img:<name>) use /usr/share/difiw/icons/<name>.dicon:
+// two little-endian 32-bit numbers (width, height) followed by RGBA bytes.
+static const Image* icon_image(const std::string& datadir, const std::string& name, int size) {
+    static std::map<std::string, Image> raw, scaled;
+    auto it = raw.find(name);
+    if (it == raw.end()) {
+        Image img;
+        std::ifstream f(datadir + "/icons/" + name + ".dicon", std::ios::binary);
+        unsigned char hd[8];
+        if (f && f.read(reinterpret_cast<char*>(hd), 8)) {
+            const int w = hd[0] | (hd[1] << 8), h = hd[4] | (hd[5] << 8);
+            if (w > 0 && w <= 1024 && h > 0 && h <= 1024) {
+                std::vector<unsigned char> b(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4);
+                f.read(reinterpret_cast<char*>(b.data()), static_cast<std::streamsize>(b.size()));
+                img.w = w; img.h = h; img.px.resize(static_cast<std::size_t>(w) * static_cast<std::size_t>(h));
+                for (std::size_t i = 0; i < img.px.size(); ++i) img.px[i] = rgba(b[i * 4], b[i * 4 + 1], b[i * 4 + 2], b[i * 4 + 3]);
+            }
+        }
+        it = raw.emplace(name, std::move(img)).first;
+    }
+    if (!it->second.ok()) return nullptr;
+    const std::string key = name + ":" + std::to_string(size);
+    auto sc = scaled.find(key);
+    if (sc == scaled.end()) sc = scaled.emplace(key, scale_cover(it->second, size, size)).first;
+    return &sc->second;
+}
+
 void Desktop::draw_icon(Rect r, const std::string& kind, float hover, bool glow, int radius) {
     if (radius < 0) radius = r.w * kRadiusIcon / kDockIcon;
+    if (kind.compare(0, 4, "img:") == 0) {  // an application with its own picture: no tile behind it
+        if (hover > 0.02f) {
+            const u32 g = glow_color(PHASE);
+            for (int i = 3; i >= 1; --i) circle(back_, r.x + r.w / 2, r.y + r.h / 2, r.w / 2 + i * 2, with_alpha(g, static_cast<int>(12.0f * hover * static_cast<float>(4 - i))));
+        }
+        if (const Image* im = icon_image(opt_.datadir, kind.substr(4), r.w)) {
+            for (int y = 0; y < im->h; ++y)
+                for (int x = 0; x < im->w; ++x) {
+                    const u32 c = im->px[static_cast<std::size_t>(y) * static_cast<std::size_t>(im->w) + static_cast<std::size_t>(x)];
+                    const int a = static_cast<int>(static_cast<float>(ca(c)) * content_alpha_);
+                    const int dx = r.x + x, dy = r.y + y;
+                    if (a <= 0 || dx < back_.clip.x || dy < back_.clip.y || dx >= back_.clip.right() || dy >= back_.clip.bottom()) continue;
+                    u32& d = back_.px[static_cast<std::size_t>(dy) * static_cast<std::size_t>(back_.stride) + static_cast<std::size_t>(dx)];
+                    d = a >= 255 ? (c | 0xFF000000u) : (mix(d, c | 0xFF000000u, static_cast<float>(a) / 255.0f) | 0xFF000000u);
+                }
+        }
+        return;
+    }
     u32 top, bottom;
     icon_colors(kind, top, bottom);
     const int cx = r.x + r.w / 2, cy = r.y + r.h / 2, u = std::min(r.w, r.h);
@@ -231,6 +274,19 @@ void Desktop::draw_icon(Rect r, const std::string& kind, float hover, bool glow,
     } else if (kind == "folder") {
         rrect(back_, {cx - u / 3, cy - u / 4, u / 3, u / 6}, 2, white);
         rrect(back_, {cx - u / 3, cy - u / 6, u * 2 / 3, u / 2}, std::max(2, u / 12), white);
+    } else if (kind == "mic") {
+        rrect(back_, {cx - u / 8, cy - u * 5 / 16, u / 4, u / 2}, u / 8, white);
+        const Rect save = back_.clip;
+        back_.clip = save.intersect({cx - u / 4, cy - u / 8, u / 2 + 1, u / 3});
+        ring(back_, cx, cy - u / 12, u / 4, std::max(2, u / 16), white);
+        back_.clip = save;
+        fill(back_, {cx - std::max(1, u / 32), cy + u / 6, std::max(2, u / 16), u / 8}, white);
+        fill(back_, {cx - u / 8, cy + u * 5 / 16 - u / 16, u / 4, std::max(2, u / 16)}, white);
+    } else if (kind == "camera") {
+        rrect(back_, {cx - u * 5 / 16, cy - u / 8, u * 5 / 8, u * 3 / 8}, std::max(2, u / 12), white);
+        rrect(back_, {cx - u / 8, cy - u / 4, u / 4, u / 8 + 2}, 2, white);
+        circle(back_, cx, cy + u / 16, u / 8, ca_(0xFF2670B8u));
+        circle(back_, cx, cy + u / 16, u / 14, white);
     } else if (kind == "shield") {
         rrect(back_, {cx - u / 5, cy - u / 12, u * 2 / 5, u / 3}, std::max(2, u / 14), white);
         ring(back_, cx, cy - u / 12, u / 8, std::max(2, u / 16), white);
@@ -420,11 +476,7 @@ void Desktop::draw_tray(Rect) {
     struct tm tm;
     localtime_r(&tt, &tm);
     const auto bg = tasks_.background_tasks();
-    int unseen = 0;
-    {
-        int idx = 0;
-        for (const auto& e : tasks_.journal()) { if (idx >= notify_seen_ && e.alert) ++unseen; ++idx; }
-    }
+    const int unseen = notify_unseen_;
     for (std::size_t i = 0; i < ids.size(); ++i) {
         const std::string& id = ids[i];
         const Rect r = tray_rect(static_cast<int>(i));
@@ -499,12 +551,13 @@ void Desktop::draw_dock() {
     dock_scroll_ = clampf(dock_scroll_, 0.0f, maxscroll);
     const int icon = S(kDockIcon);
     if (n == 0) {
-        const std::string hint = fit_text(t("Running apps appear here", "Здесь появятся запущенные приложения"), left.w - S(8), 1);
+        const std::string hint = fit_text(t("Running and pinned apps appear here", "Здесь запущенные и закреплённые приложения"), left.w - S(8), 1);
         draw_text(back_, left.x + S(8), left.y + (left.h - font_h()) / 2, hint, kTextFaint, 1);
     }
     const Rect save = back_.clip;
     back_.clip = save.intersect(strip);
     const int first_x = strip.x + (strip.w - std::min(n, cap) * slot) / 2;
+    dock_geom_ = {first_x, slot, dock_scroll_};
     std::vector<float> hv(static_cast<std::size_t>(n), 0.0f);
     for (int i = 0; i < n; ++i) hv[static_cast<std::size_t>(i)] = hover_amount("dock:" + dock_items_[static_cast<std::size_t>(i)].app_id);
     for (int i = 0; i < n; ++i) {
@@ -526,7 +579,8 @@ void Desktop::draw_dock() {
         draw_icon(ir, a ? a->icon : "gear", h, true);
         // running indicator (shape differs for the active window) + window count
         const int iy = d.y + d.h - S(11);
-        if (it.active) rrect(back_, {cx - S(10), iy, S(20), S(4)}, S(2), kAccentBlue);
+        if (it.wins.empty()) {}  // pinned, not running: no indicator
+        else if (it.active) rrect(back_, {cx - S(10), iy, S(20), S(4)}, S(2), kAccentBlue);
         else rrect(back_, {cx - S(3), iy, S(6), S(4)}, S(2), it.all_minimized ? kTextFaint : kTextDim);
         if (it.wins.size() > 1) {
             const std::string c = std::to_string(it.wins.size());
@@ -538,7 +592,7 @@ void Desktop::draw_dock() {
         const std::string app = it.app_id;
         add_hit(hit.intersect(strip), [this, copy, app, hit](int b) {
             if (b == 2) { close_all_popups(); open_popup(PopupKind::AppMenu, hit, app); }
-            else activate_app(copy);
+            else { dock_press_app_ = app; dock_press_x_ = mx_; dock_moved_ = false; dock_press_item_ = copy; drag_ = Drag::Dock; }  // click or drag: decided on release
         }, key, a ? a->name(set_.ru) : app);
     }
     back_.clip = save;
@@ -584,21 +638,20 @@ void Desktop::draw_popup(Popup& p) {
     else e = ease_out(static_cast<float>(frame_ms_ - p.t0) / static_cast<float>(kAnimPopup));
     if (e <= 0.01f) return;
     // grow from the button that opened it
-    const float s = 0.30f + 0.70f * e;
+    const float s = 0.90f + 0.10f * e;
     const int w = static_cast<int>(static_cast<float>(p.rect.w) * s), h = static_cast<int>(static_cast<float>(p.rect.h) * s);
-    const float acx = static_cast<float>(p.anchor.x + p.anchor.w / 2), pcx = static_cast<float>(p.rect.x + p.rect.w / 2);
-    const float abot = static_cast<float>(p.anchor.y - S(10)), pbot = static_cast<float>(p.rect.bottom());
+    const float acx = static_cast<float>(p.rect.x + p.rect.w / 2), pcx = static_cast<float>(p.rect.x + p.rect.w / 2);
+    const float abot = static_cast<float>(p.rect.bottom() + S(8)), pbot = static_cast<float>(p.rect.bottom());
     const int cx = static_cast<int>(acx + (pcx - acx) * e), bot = static_cast<int>(abot + (pbot - abot) * e);
     const Rect cur = {cx - w / 2, bot - h, w, h};
     draw_glass(cur, S(kRadiusPanel), 18);
     // pointer notch toward the source button
-    if (e > 0.85f) {
+    if (e > 0.9f) {
         const int ax = clampi(p.anchor.x + p.anchor.w / 2, cur.x + S(28), cur.right() - S(28));
         const int ny = cur.bottom();
         for (int i = 0; i < S(9); ++i) fill(back_, {ax - (S(9) - i), ny + i - 1, 2 * (S(9) - i), 1}, 0xE0141925u);
     }
-    content_alpha_ = clampf((e - 0.55f) / 0.45f, 0.0f, 1.0f);
-    if (e < 0.6f) { content_alpha_ = 1.0f; return; }
+    content_alpha_ = clampf(e / 0.6f, 0.0f, 1.0f);
     const Rect save = back_.clip;
     back_.clip = save.intersect(cur);
     const Rect r = p.rect;  // content is laid out in the final rectangle
@@ -612,7 +665,6 @@ void Desktop::draw_popup(Popup& p) {
         case PopupKind::Notify: draw_notify(r); break;
         case PopupKind::Power: draw_power(r); break;
         case PopupKind::Layout: draw_layout(r); break;
-        case PopupKind::Settings: draw_settings(r); break;
         case PopupKind::AppWindows: draw_app_windows(p, r); break;
         case PopupKind::AppMenu: draw_app_menu(p, r); break;
         case PopupKind::Confirm: draw_confirm(p, r); break;
@@ -674,36 +726,44 @@ void Desktop::draw_menu(Popup& p, Rect r) {
         rrect(back_, chip, S(14), ca_(on ? 0xFF2F5FC0u : mix(kGraphite700, kGraphite500, hv)));
         if (on) rrect_outline(back_, chip, S(14), 1, ca_(kAccentBlue));
         draw_text(back_, chip.x + S(11), chip.y + (chip.h - font_h()) / 2, label, ca_(on ? 0xFFFFFFFFu : kText), 1);
-        add_hit(chip, [this, i](int) { menu_cat_ = i; menu_page_ = 0; menu_sel_ = 0; dirty_ = true; }, key);
+        add_hit(chip, [this, i](int) { menu_cat_ = i; menu_page_ = 0; menu_sel_ = -1; dirty_ = true; }, key);
         cx += w + S(8);
     }
     y += S(28) + S(14);
-    // application grid
+    // application grid (or list)
     const auto apps = menu_apps();
-    const int per = kMenuCols * 4;
+    const bool list = set_.menu_list;
+    const int per = menu_per_page();
     const int pages = std::max(1, (static_cast<int>(apps.size()) + per - 1) / per);
     menu_page_ = clampi(menu_page_, 0, pages - 1);
-    const int cell_w = (r.w - 2 * pad) / kMenuCols, cell_h = S(92);
+    const int cols = list ? 1 : kMenuCols;
+    const int cell_w = (r.w - 2 * pad) / cols, cell_h = list ? S(46) : S(92);
     if (apps.empty()) draw_text(back_, r.x + pad, y + S(20), t("Nothing found", "Ничего не найдено"), ca_(kTextDim), sc);
     for (int i = 0; i < per; ++i) {
         const int idx = menu_page_ * per + i;
         if (idx >= static_cast<int>(apps.size())) break;
         const AppDef* a = apps[static_cast<std::size_t>(idx)];
-        const Rect cell = {r.x + pad + (i % kMenuCols) * cell_w, y + (i / kMenuCols) * cell_h, cell_w, cell_h};
+        const Rect cell = {r.x + pad + (i % cols) * cell_w, y + (i / cols) * cell_h, cell_w, cell_h};
         const std::string key = "menu:app:" + a->id;
         const float hv = hover_amount(key);
         const bool selected = idx == menu_sel_;
         if (hv > 0.02f || selected) rrect(back_, cell.inset(S(2)), S(14), ca_(with_alpha(0xFFFFFFFFu, selected ? 26 : static_cast<int>(20.0f * hv))));
-        if (selected) {  // visible keyboard focus: an outline, not only a tint
-            rrect_outline(back_, cell.inset(S(2)), S(14), 2, ca_(kAccentBlue));
+        if (selected) rrect_outline(back_, cell.inset(S(2)), S(14), 2, ca_(kAccentBlue));  // visible keyboard focus (only after a key press)
+        if (list) {
+            const int isz = S(34);
+            draw_icon({cell.x + S(10), cell.y + (cell.h - isz) / 2, isz, isz}, a->icon, hv, false, S(9));
+            draw_text(back_, cell.x + S(54), cell.y + (cell.h - font_h() * sc) / 2, fit_text(a->name(set_.ru), cell.w - S(150), sc), ca_(kText), sc);
+            if (is_pinned(a->id)) draw_text(back_, cell.right() - S(10) - text_width(t("pinned", "закреплено"), 1), cell.y + (cell.h - font_h()) / 2, t("pinned", "закреплено"), ca_(kAccentTeal), 1);
+        } else {
+            const int isz = S(kMenuIcon);
+            const Rect ir = {cell.x + (cell.w - isz) / 2, cell.y + S(8) - static_cast<int>(hv * static_cast<float>(S(3))), isz, isz};
+            draw_icon(ir, a->icon, hv, true, S(15));
+            const std::string name = fit_text(a->name(set_.ru), cell.w - S(6), 1);
+            draw_text(back_, cell.x + (cell.w - text_width(name, 1)) / 2, ir.bottom() + S(8), name, ca_(kText), 1);
+            if (is_pinned(a->id)) circle(back_, ir.right() - S(2), ir.y + S(4), S(5), ca_(kAccentTeal));
         }
-        const int isz = S(kMenuIcon);
-        const Rect ir = {cell.x + (cell.w - isz) / 2, cell.y + S(8) - static_cast<int>(hv * static_cast<float>(S(3))), isz, isz};
-        draw_icon(ir, a->icon, hv, true, S(15));
-        const std::string name = fit_text(a->name(set_.ru), cell.w - S(6), 1);
-        draw_text(back_, cell.x + (cell.w - text_width(name, 1)) / 2, ir.bottom() + S(8), name, ca_(kText), 1);
         const std::string id = a->id;
-        add_hit(cell, [this, id](int) { launch_app(id); }, key);  // the name is already under the icon: no tooltip
+        add_hit(cell, [this, id](int b) { if (b == 2) toggle_pin(id); else launch_app(id); }, key);  // right click pins / unpins
     }
     // pagination
     if (pages > 1) {
@@ -715,6 +775,7 @@ void Desktop::draw_menu(Popup& p, Rect r) {
             add_hit(dot, [this, i](int) { menu_page_ = i; dirty_ = true; });
         }
     }
+    draw_text(back_, r.x + pad, r.bottom() - S(22), fit_text(t("Right click: pin to the panel", "Правая кнопка: закрепить в панели"), r.w - 2 * pad - S(80), 1), ca_(kTextFaint), 1);
     (void)p;
 }
 
@@ -816,46 +877,6 @@ void Desktop::draw_tasks(Popup& p, Rect r) {
     (void)p;
 }
 
-void Desktop::draw_net(Rect r) {
-    const int pad = S(16), sc = set_.scale;
-    draw_text(back_, r.x + pad, r.y + pad, t("Network", "Сеть"), ca_(kText), sc);
-    int y = r.y + pad + font_h() * sc + S(12);
-    DIR* d = opendir("/sys/class/net");
-    int shown = 0;
-    if (d) {
-        const int fd = socket(AF_INET, SOCK_DGRAM, 0);
-        while (struct dirent* e = readdir(d)) {
-            if (e->d_name[0] == '.') continue;
-            std::string st = "?";
-            std::ifstream f(std::string("/sys/class/net/") + e->d_name + "/operstate");
-            std::getline(f, st);
-            char ip[32] = "-";
-            if (fd >= 0) {
-                struct ifreq ifr;
-                std::memset(&ifr, 0, sizeof ifr);
-                std::strncpy(ifr.ifr_name, e->d_name, IFNAMSIZ - 1);
-                if (ioctl(fd, SIOCGIFADDR, &ifr) == 0) inet_ntop(AF_INET, &reinterpret_cast<struct sockaddr_in*>(&ifr.ifr_addr)->sin_addr, ip, sizeof ip);
-            }
-            const bool up = st == "up" || st == "unknown";
-            draw_text(back_, r.x + pad, y, std::string(e->d_name) + (up ? "  [on]" : "  [off]"), ca_(up ? kOk : kTextDim), 1);
-            draw_text(back_, r.x + pad + S(130), y, ip, ca_(kText), 1);
-            y += S(24);
-            ++shown;
-        }
-        if (fd >= 0) close(fd);
-        closedir(d);
-    }
-    if (shown <= 1) draw_text(back_, r.x + pad, y + S(6), fit_text(t("No network connection.", "Нет сетевого подключения."), r.w - 2 * pad, 1), ca_(kTextDim), 1);
-}
-
-void Desktop::draw_sound(Rect r) {
-    const int pad = S(16), sc = set_.scale;
-    draw_text(back_, r.x + pad, r.y + pad, t("Sound", "Звук"), ca_(kText), sc);
-    const bool have = access("/proc/asound/cards", F_OK) == 0;
-    draw_text(back_, r.x + pad, r.y + pad + font_h() * sc + S(14), fit_text(have ? t("Sound device found.", "Звуковое устройство найдено.") : t("No sound device.", "Звукового устройства нет."), r.w - 2 * pad, 1), ca_(kTextDim), 1);
-    draw_text(back_, r.x + pad, r.y + pad + font_h() * sc + S(36), fit_text(t("Audio is not part of this build.", "Звук в этой сборке не поддерживается."), r.w - 2 * pad, 1), ca_(kTextFaint), 1);
-}
-
 void Desktop::draw_calendar(Rect r) {
     const int pad = S(16), sc = set_.scale;
     time_t tt = time(nullptr);
@@ -897,17 +918,16 @@ void Desktop::draw_calendar(Rect r) {
 void Desktop::draw_notify(Rect r) {
     const int pad = S(16), sc = set_.scale;
     draw_text(back_, r.x + pad, r.y + pad, t("Notifications", "Уведомления"), ca_(kText), sc);
-    int y = r.y + pad + font_h() * sc + S(12);
-    const auto& j = tasks_.journal();
-    if (j.empty()) draw_text(back_, r.x + pad, y, t("No notifications.", "Уведомлений нет."), ca_(kTextDim), 1);
-    int shown = 0;
-    for (auto it = j.rbegin(); it != j.rend() && y + S(26) < r.bottom() - S(8); ++it, ++shown) {
+    int y = r.y + pad + font_h() * sc + S(14);
+    if (notes_.empty()) draw_text(back_, r.x + pad, y, t("No notifications.", "Уведомлений нет."), ca_(kTextDim), 1);
+    for (auto it = notes_.rbegin(); it != notes_.rend() && y + S(30) < r.bottom() - S(8); ++it) {
         const long ago = (now_ms() - it->t_ms) / 1000;
         char when[24];
-        std::snprintf(when, sizeof when, ago < 60 ? "%lds" : "%ldm", ago < 60 ? ago : ago / 60);
-        draw_text(back_, r.x + pad, y, std::string(it->alert ? "(!) " : "    ") + fit_text(it->text, r.w - 2 * pad - S(70), 1), ca_(it->alert ? kWarn : kTextDim), 1);
+        std::snprintf(when, sizeof when, ago < 60 ? "%lds" : ago < 3600 ? "%ldm" : "%ldh", ago < 60 ? ago : ago < 3600 ? ago / 60 : ago / 3600);
+        circle(back_, r.x + pad + S(4), y + font_h() / 2, S(3), ca_(it->alert ? kWarn : kAccentBlue));
+        draw_text(back_, r.x + pad + S(16), y, fit_text(it->text, r.w - 2 * pad - S(70), 1), ca_(it->alert ? kWarn : kText), 1);
         draw_text(back_, r.right() - pad - text_width(when, 1), y, when, ca_(kTextFaint), 1);
-        y += S(24);
+        y += S(28);
     }
 }
 
@@ -936,24 +956,6 @@ void Desktop::draw_layout(Rect r) {
         const bool cur = (k == 1) == layout_ru_;
         draw_button(b, std::string(k == 0 ? "EN" : "RU") + (cur ? " *" : ""), [this, k](int) { layout_ru_ = k == 1; dirty_ = true; }, cur);
     }
-}
-
-void Desktop::draw_settings(Rect r) {
-    const int pad = S(18), sc = set_.scale, rh = S(40);
-    draw_text(back_, r.x + pad, r.y + pad, t("Settings", "Параметры"), ca_(kText), sc);
-    int y = r.y + pad + font_h() * sc + S(14);
-    auto row = [&](const std::string& label, const std::string& value, std::function<void(int)> fn) {
-        draw_text(back_, r.x + pad, y + (S(32) - font_h()) / 2, fit_text(label, r.w - 2 * pad - S(110), 1), ca_(kText), 1);
-        const Rect b = {r.right() - pad - S(100), y, S(100), S(32)};
-        draw_button(b, value, std::move(fn));
-        y += rh;
-    };
-    row(t("Reduce motion", "Меньше движения"), set_.reduce_motion ? t("On", "Вкл") : t("Off", "Выкл"), [this](int) { set_.reduce_motion = !set_.reduce_motion; apply_settings(); });
-    row(t("Transparency", "Прозрачность"), set_.transparency ? t("On", "Вкл") : t("Off", "Выкл"), [this](int) { set_.transparency = !set_.transparency; apply_settings(); });
-    row(t("Interface scale", "Масштаб интерфейса"), set_.scale == 1 ? "100%" : "200%", [this](int) { set_.scale = set_.scale == 1 ? 2 : 1; close_all_popups(); apply_settings(); });
-    row(t("Language", "Язык"), set_.ru ? "RU" : "EN", [this](int) { set_.ru = !set_.ru; apply_settings(); });
-    row(t("Win key opens menu", "Клавиша Win открывает меню"), set_.winkey ? t("On", "Вкл") : t("Off", "Выкл"), [this](int) { set_.winkey = !set_.winkey; apply_settings(); });
-    draw_text(back_, r.x + pad, y + S(6), fit_text(t("Saved in /etc/difiw/desktop.conf", "Сохраняется в /etc/difiw/desktop.conf"), r.w - 2 * pad, 1), ca_(kTextFaint), 1);
 }
 
 void Desktop::draw_app_windows(Popup& p, Rect r) {
@@ -987,9 +989,13 @@ void Desktop::draw_app_menu(Popup& p, Rect r) {
         draw_button({r.x + pad, y, r.w - 2 * pad, bh}, label, std::move(fn), false, danger);
         y += bh + S(6);
     };
-    item(t("New window", "Новое окно"), [this, app](int) { launch_app(app); });
-    item(t("Close window", "Закрыть окно"), [this, app](int) { close_app_windows(app); close_all_popups(); });
-    item(t("Quit app", "Закрыть приложение"), [this, app](int) { close_app(app); close_all_popups(); }, true);
+    bool running = false;
+    for (auto& in : tasks_.instances()) if (in.app_id == app && !in.wins.empty()) running = true;
+    item(is_pinned(app) ? t("Unpin from panel", "Открепить от панели") : t("Pin to panel", "Закрепить в панели"), [this, app](int) { toggle_pin(app); close_all_popups(); });
+    if (running) {
+        item(t("Close window", "Закрыть окно"), [this, app](int) { close_app_windows(app); close_all_popups(); });
+        item(t("Quit app", "Закрыть приложение"), [this, app](int) { close_app(app); close_all_popups(); }, true);
+    }
 }
 
 void Desktop::draw_confirm(Popup& p, Rect r) {
@@ -1031,7 +1037,7 @@ void Desktop::draw_toast() {
 }
 
 void Desktop::draw_tip() {
-    if (tip_.empty() || hover_.empty()) return;
+    if (!set_.tips || tip_.empty() || hover_.empty()) return;
     for (const auto& p : popups_) if (!p.closing && p.rect.has(mx_, my_)) { /* tips are drawn above popups too */ }
     const int w = text_width(tip_, 1) + S(20), h = S(28);
     int x = tip_anchor_.x + tip_anchor_.w / 2 - w / 2;
@@ -1058,6 +1064,11 @@ struct timespec t0, t1, t2, t3;    clock_gettime(CLOCK_MONOTONIC, &t0);    draw_
         const Rect r = {S(8), S(8), text_width(b, 1) + S(20), S(26)};
         rrect(back_, r, S(8), 0xE0141925u);
         draw_text(back_, r.x + S(10), r.y + (r.h - font_h()) / 2, b, kAccentTeal, 1);
+    }
+    if (drag_ == Drag::None) {  // the layout may have changed under a still pointer (animation, reorder, closed popup): keep hover/tooltip in sync
+        const Hit* h = hit_at(mx_, my_);
+        const std::string key = h ? h->hover_key : "", tip = h ? h->tip : "";
+        if (key != hover_ || tip != tip_) { hover_ = key; tip_ = tip; if (h) tip_anchor_ = h->r; }
     }
     if (!hover_.empty() && popups_.empty()) draw_tip();
     else if (!hover_.empty()) draw_tip();

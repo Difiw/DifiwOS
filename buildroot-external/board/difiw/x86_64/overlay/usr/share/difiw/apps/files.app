@@ -1,0 +1,10 @@
+id=files
+name=Files
+name_ru=Файлы
+category=work
+icon=folder
+exec=/usr/bin/difiw-apps
+args=files
+uid=20010
+perms=
+hidden=0

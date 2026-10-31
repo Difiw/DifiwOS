@@ -1,10 +1,10 @@
 id=probe
 name=Home check
 name_ru=Проверка дома
-category=system
+category=test
 icon=probe
 exec=/usr/bin/difiw-apps
 args=probe
 uid=20005
 perms=
-hidden=0
+hidden=1

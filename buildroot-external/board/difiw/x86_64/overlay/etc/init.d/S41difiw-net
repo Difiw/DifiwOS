@@ -1,0 +1,22 @@
+#!/bin/sh
+# Difiw OS network: every Ethernet adapter gets an address by DHCP (VirtualBox NAT works out of the box).
+# SPDX-License-Identifier: MIT
+
+case "$1" in
+start)
+    for dev in /sys/class/net/*; do
+        i="${dev##*/}"
+        [ "$i" = "lo" ] && continue
+        ip link set "$i" up 2>/dev/null || continue
+        udhcpc -i "$i" -b -t 8 -T 2 -p "/run/udhcpc-$i.pid" -s /etc/difiw/udhcpc.script >/dev/null 2>&1 &
+    done
+    ;;
+stop)
+    for p in /run/udhcpc-*.pid; do
+        [ -f "$p" ] && kill "$(cat "$p")" 2>/dev/null
+    done
+    ;;
+restart|reload) "$0" stop; "$0" start ;;
+*) echo "Usage: $0 {start|stop}"; exit 1 ;;
+esac
+exit 0

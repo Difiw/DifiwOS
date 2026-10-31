@@ -133,6 +133,25 @@ void Desktop::on_pointer_move(int nx, int ny) {
             w->ch = r.h - title_h() - S(6);
             dirty_ = true;
         }
+    } else if (drag_ == Drag::Slider) {
+        slider_set(slider_key_, (mx_ - slider_rect_.x) * 100 / std::max(1, slider_rect_.w), false);
+    } else if (drag_ == Drag::Dock) {
+        if (!dock_moved_ && std::abs(mx_ - dock_press_x_) > S(8)) dock_moved_ = true;
+        if (dock_moved_ && dock_geom_.slot > 0 && !dock_items_.empty()) {
+            // the icon follows the pointer: it swaps places with the one it passes
+            int idx = static_cast<int>(std::floor(static_cast<float>(mx_ - dock_geom_.first_x) / static_cast<float>(dock_geom_.slot) + dock_geom_.scroll));
+            idx = clampi(idx, 0, static_cast<int>(dock_items_.size()) - 1);
+            const std::string to = dock_items_[static_cast<std::size_t>(idx)].app_id;
+            auto pf = std::find(dock_order_.begin(), dock_order_.end(), dock_press_app_);
+            auto pt = std::find(dock_order_.begin(), dock_order_.end(), to);
+            if (pf != dock_order_.end() && pt != dock_order_.end() && pf != pt) {
+                const std::string moving = *pf;
+                const std::size_t target = static_cast<std::size_t>(pt - dock_order_.begin());
+                dock_order_.erase(pf);
+                dock_order_.insert(dock_order_.begin() + static_cast<std::ptrdiff_t>(std::min(target, dock_order_.size())), moving);
+            }
+            dirty_ = true;
+        }
     } else if (drag_ == Drag::Content) {
         if (Window* w = win(drag_win_)) route_mouse_to_window(*w, 0, 0);
     } else {
@@ -176,7 +195,12 @@ void Desktop::on_button(int button, bool down) {
     dirty_ = true;
 
     if (!down) {
-        if (drag_ == Drag::Content) {
+        if (drag_ == Drag::Slider) {
+            slider_set(slider_key_, (mx_ - slider_rect_.x) * 100 / std::max(1, slider_rect_.w), true);
+        } else if (drag_ == Drag::Dock) {
+            if (!dock_moved_) activate_app(dock_press_item_); else save_settings();
+            dock_press_app_.clear();
+        } else if (drag_ == Drag::Content) {
             if (Window* w = win(drag_win_)) route_mouse_to_window(*w, 2, 0);
         } else if (drag_ == Drag::Resize) {
             if (Window* w = win(drag_win_)) configure(*w, w->cw, w->ch);
@@ -253,17 +277,18 @@ bool Desktop::handle_popup_key(int code, int state, const std::string& text) {
     if (p.kind != PopupKind::Menu) return false;
     const auto apps = menu_apps();
     const int n = static_cast<int>(apps.size());
-    const int per = tok::kMenuCols * 4;
+    const int per = menu_per_page(), cols = menu_cols();
+    if (menu_sel_ < 0 && (code == KEY_RIGHT || code == KEY_LEFT || code == KEY_DOWN || code == KEY_UP) && n > 0) { menu_sel_ = 0; menu_page_ = 0; dirty_ = true; return true; }
     if (code == KEY_ENTER) {
-        const int idx = menu_sel_ >= 0 ? menu_sel_ : 0;
-        if (idx < n) launch_app(apps[static_cast<std::size_t>(idx)]->id);
+        const int idx = menu_sel_ >= 0 ? menu_sel_ : (menu_search_.empty() ? -1 : 0);
+        if (idx >= 0 && idx < n) launch_app(apps[static_cast<std::size_t>(idx)]->id);
     } else if (code == KEY_BACKSPACE) {
         if (!menu_search_.empty()) menu_search_.erase(u8_prev(menu_search_, menu_search_.size()));
         menu_sel_ = 0; menu_page_ = 0;
     } else if (code == KEY_RIGHT) { if (menu_sel_ + 1 < n) ++menu_sel_; }
     else if (code == KEY_LEFT) { if (menu_sel_ > 0) --menu_sel_; }
-    else if (code == KEY_DOWN) { if (menu_sel_ + tok::kMenuCols < n) menu_sel_ += tok::kMenuCols; }
-    else if (code == KEY_UP) { if (menu_sel_ - tok::kMenuCols >= 0) menu_sel_ -= tok::kMenuCols; }
+    else if (code == KEY_DOWN) { if (menu_sel_ + cols < n) menu_sel_ += cols; }
+    else if (code == KEY_UP) { if (menu_sel_ - cols >= 0) menu_sel_ -= cols; }
     else if (code == KEY_TAB) { menu_cat_ = (menu_cat_ + 1) % static_cast<int>(categories().size()); menu_sel_ = 0; menu_page_ = 0; }
     else if (!text.empty() && text != " " ) { menu_search_ += text; menu_sel_ = 0; menu_page_ = 0; }
     else if (text == " " && !menu_search_.empty()) { menu_search_ += text; }
@@ -300,15 +325,15 @@ void Desktop::note_toast(const std::string& text) {
 }
 
 void Desktop::build_dock_items() {
-    dock_items_.clear();
+    std::vector<DockItem> running;
     for (auto& in : tasks_.instances()) {
         if (in.wins.empty()) continue;
         DockItem* item = nullptr;
-        for (auto& d : dock_items_) if (d.app_id == in.app_id) item = &d;
-        if (!item) { dock_items_.push_back(DockItem()); item = &dock_items_.back(); item->app_id = in.app_id; }
+        for (auto& d : running) if (d.app_id == in.app_id) item = &d;
+        if (!item) { running.push_back(DockItem()); item = &running.back(); item->app_id = in.app_id; }
         for (int id : in.wins) item->wins.push_back(id);
     }
-    for (auto& d : dock_items_) {
+    for (auto& d : running) {
         bool all_min = true;
         for (int id : d.wins) {
             Window* w = win(id);
@@ -318,11 +343,27 @@ void Desktop::build_dock_items() {
         }
         d.all_minimized = all_min;
     }
+    // order: what the user arranged (dock_order_); pinned apps stay even when closed, other apps only while they run
+    auto is_running = [&](const std::string& id) { for (const auto& d : running) if (d.app_id == id) return true; return false; };
+    for (const auto& p : pinned_) if (std::find(dock_order_.begin(), dock_order_.end(), p) == dock_order_.end()) dock_order_.push_back(p);
+    for (const auto& d : running) if (std::find(dock_order_.begin(), dock_order_.end(), d.app_id) == dock_order_.end()) dock_order_.push_back(d.app_id);
+    dock_order_.erase(std::remove_if(dock_order_.begin(), dock_order_.end(), [&](const std::string& id) { return !is_pinned(id) && !is_running(id) && id != dock_press_app_; }), dock_order_.end());
+    dock_items_.clear();
+    for (const auto& id : dock_order_) {
+        if (!tasks_.app(id)) continue;
+        DockItem it;
+        it.app_id = id;
+        for (const auto& d : running) if (d.app_id == id) it = d;
+        dock_items_.push_back(it);
+    }
+    // the saved pinned order follows the arranged order
+    std::vector<std::string> np;
+    for (const auto& id : dock_order_) if (is_pinned(id)) np.push_back(id);
+    if (np.size() == pinned_.size()) pinned_ = np;
 }
 
 void Desktop::launch_app(const std::string& app_id) {
     close_all_popups();
-    if (app_id == "@settings") { open_popup(PopupKind::Settings, dock_d_rect()); return; }
     std::string err;
     const int iid = tasks_.launch(app_id, err);
     const AppDef* a = tasks_.app(app_id);
@@ -334,6 +375,7 @@ void Desktop::launch_app(const std::string& app_id) {
 }
 
 void Desktop::activate_app(const DockItem& it) {
+    if (it.wins.empty()) { launch_app(it.app_id); return; }
     if (it.wins.size() == 1) {
         Window* w = win(it.wins[0]);
         if (!w) return;
@@ -381,21 +423,20 @@ void Desktop::open_popup(PopupKind k, Rect anchor, const std::string& app_id) {
     int w = 300, h = 220;
     switch (k) {
         case PopupKind::Menu: {
-            menu_search_.clear(); menu_cat_ = 0; menu_page_ = 0; menu_sel_ = 0;
+            menu_search_.clear(); menu_cat_ = 0; menu_page_ = 0; menu_sel_ = -1;
             const int n = static_cast<int>(menu_apps().size());
-            const int rows = clampi((n + tok::kMenuCols - 1) / tok::kMenuCols, 2, 4);
             w = 36 + tok::kMenuCols * tok::kMenuCellW;
-            h = 188 + rows * 92 + (n > tok::kMenuCols * 4 ? 34 : 14);
+            if (set_.menu_list) h = 188 + 7 * 46 + 40;
+            else h = 188 + clampi((n + tok::kMenuCols - 1) / tok::kMenuCols, 2, 4) * 92 + 40;
             break;
         }
         case PopupKind::Tasks: w = 28 + tok::kTasksCols * 70; h = 440; tasks_scroll_ = 0; tasks_sel_.clear(); break;
-        case PopupKind::Net: w = 320; h = 230; break;
-        case PopupKind::Sound: w = 290; h = 150; break;
+        case PopupKind::Net: w = 380; h = 440; refresh_net(true); break;
+        case PopupKind::Sound: w = 380; h = 352; refresh_audio(); break;
         case PopupKind::Calendar: w = 310; h = 330; break;
-        case PopupKind::Notify: w = 360; h = 320; notify_seen_ = static_cast<int>(tasks_.journal().size()); break;
+        case PopupKind::Notify: w = 360; h = 320; notify_unseen_ = 0; break;
         case PopupKind::Power: w = 230; h = 200; break;
         case PopupKind::Layout: w = 210; h = 120; break;
-        case PopupKind::Settings: w = 380; h = 410; break;
         case PopupKind::AppWindows: w = 280; h = 70; break;
         case PopupKind::AppMenu: w = 220; h = 150; break;
         case PopupKind::Confirm: w = 340; h = 140; break;

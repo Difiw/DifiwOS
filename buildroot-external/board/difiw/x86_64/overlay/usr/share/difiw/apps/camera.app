@@ -1,0 +1,10 @@
+id=camera
+name=Camera
+name_ru=Камера
+category=utility
+icon=camera
+exec=/usr/bin/difiw-apps
+args=camera
+uid=20012
+perms=camera
+hidden=0

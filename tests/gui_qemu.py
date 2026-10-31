@@ -99,7 +99,7 @@ def main():
             vm = sq.Vm(iso, ["-vga", "std", "-qmp", f"unix:{sock},server,nowait",
                              "-device", "qemu-xhci", "-device", "usb-tablet", "-device", "usb-kbd"], log)
             vm.wait_for(sq.PROMPT, 150)
-            sq.check("text terminal is the default after boot", "Difiw OS 0.4.0 Core" in vm.buf)
+            sq.check("text terminal is the default after boot", "Difiw OS 0.5.5 Core" in vm.buf)
             out = vm.run("terminal")
             sq.check("terminal command in text mode", "already in the text terminal" in out, out)
             qmp = Qmp(sock)

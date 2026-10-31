@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Desktop core: initialisation, main loop, framebuffer, input devices, clients, windows, control.
+#include <arpa/inet.h>
+#include <dirent.h>
 #include <fcntl.h>
+#include <net/if.h>
 #include <linux/fb.h>
 #include <linux/kd.h>
 #include <poll.h>
@@ -54,6 +57,54 @@ static std::vector<std::pair<std::string, std::string>> read_conf(const std::str
     return kv;
 }
 
+// Wallpaper: the shipped photo, a procedural gradient, or a .ppm chosen by the user. Also recomputes the blurred copy
+// (glass panels) and the wallpaper + scrim under the dock.
+void Desktop::build_wallpaper() {
+    struct Grad { const char* id; u32 top, bottom, glow; };
+    static const Grad grads[] = {{"graphite", 0xFF141821, 0xFF2A3142, 0xFF4C8DFF}, {"ocean", 0xFF0B2545, 0xFF13A4B8, 0xFF8DE0F2},
+                                 {"sunset", 0xFF2B1B4F, 0xFFE0703A, 0xFFFFC27A}, {"forest", 0xFF0C1F17, 0xFF2F8F5B, 0xFFA3E8B8}};
+    bool done = false;
+    if (set_.wallpaper.compare(0, 5, "file:") == 0) {
+        Image raw;
+        if (load_ppm(set_.wallpaper.substr(5).c_str(), raw)) { wall_ = scale_cover(raw, W_, H_); done = true; }
+    } else {
+        for (const Grad& g : grads) {
+            if (set_.wallpaper != g.id) continue;
+            wall_.w = W_; wall_.h = H_; wall_.px.resize(static_cast<std::size_t>(W_) * H_);
+            for (int y = 0; y < H_; ++y)
+                for (int x = 0; x < W_; ++x) {
+                    const float dx = static_cast<float>(x - W_ * 3 / 4) / static_cast<float>(W_), dy = static_cast<float>(y - H_ / 4) / static_cast<float>(H_);
+                    const float glow = std::max(0.0f, 1.0f - std::sqrt(dx * dx + dy * dy) * 1.6f);
+                    wall_.px[static_cast<std::size_t>(y) * W_ + x] = mix(mix(g.top, g.bottom, static_cast<float>(y) / static_cast<float>(H_)), g.glow, glow * glow * 0.55f) | 0xFF000000u;
+                }
+            done = true;
+        }
+    }
+    if (!done) {
+        Image raw;
+        if (load_ppm((opt_.datadir + "/wallpaper.ppm").c_str(), raw)) wall_ = scale_cover(raw, W_, H_);
+        else {  // fallback: calm graphite-to-blue gradient
+            wall_.w = W_; wall_.h = H_; wall_.px.resize(static_cast<std::size_t>(W_) * H_);
+            for (int y = 0; y < H_; ++y)
+                for (int x = 0; x < W_; ++x)
+                    wall_.px[static_cast<std::size_t>(y) * W_ + x] = mix(0xFF0E1118u, 0xFF1B2A4Au, static_cast<float>(y) / static_cast<float>(H_));
+        }
+    }
+    wall_blur_ = wall_;
+    box_blur(wall_blur_, 12, 2);
+    base_ = wall_;
+    const int sh = std::min(H_, 240);
+    for (int i = 0; i < sh; ++i) {
+        const int y = H_ - sh + i;
+        const float a = static_cast<float>(i * 130 / sh) / 255.0f;
+        for (int x = 0; x < W_; ++x) {
+            u32& p = base_.px[static_cast<std::size_t>(y) * W_ + x];
+            p = mix(p, 0xFF05070Au, a) | 0xFF000000u;
+        }
+    }
+    dirty_ = true;
+}
+
 bool Desktop::init(const Options& opt) {
     opt_ = opt;
     g_self = this;
@@ -67,6 +118,10 @@ bool Desktop::init(const Options& opt) {
         else if (k == "transparency") set_.transparency = v != "0";
         else if (k == "lang") set_.ru = v != "en";
         else if (k == "winkey") set_.winkey = v == "1";
+        else if (k == "tips") set_.tips = v != "0";
+        else if (k == "menu") set_.menu_list = v == "list";
+        else if (k == "wallpaper" && !v.empty()) set_.wallpaper = v;
+        else if (k == "pinned") { std::istringstream ps(v); std::string id; while (std::getline(ps, id, ',')) if (!id.empty()) pinned_.push_back(id); }
     }
     if (opt_.headless) {
         W_ = opt_.hw; H_ = opt_.hh;
@@ -76,30 +131,7 @@ bool Desktop::init(const Options& opt) {
     }
     back_.alloc(W_, H_);
 
-    Image raw;
-    if (load_ppm((opt_.datadir + "/wallpaper.ppm").c_str(), raw)) {
-        wall_ = scale_cover(raw, W_, H_);
-    } else {  // fallback: calm graphite-to-blue gradient
-        wall_.w = W_; wall_.h = H_; wall_.px.resize(static_cast<std::size_t>(W_) * H_);
-        for (int y = 0; y < H_; ++y)
-            for (int x = 0; x < W_; ++x)
-                wall_.px[static_cast<std::size_t>(y) * W_ + x] = mix(0xFF0E1118u, 0xFF1B2A4Au, static_cast<float>(y) / static_cast<float>(H_));
-    }
-    wall_blur_ = wall_;
-    box_blur(wall_blur_, 12, 2);
-    // wallpaper + a soft scrim under the dock, computed once (not every frame)
-    base_ = wall_;
-    {
-        const int sh = std::min(H_, 240);
-        for (int i = 0; i < sh; ++i) {
-            const int y = H_ - sh + i;
-            const float a = static_cast<float>(i * 130 / sh) / 255.0f;
-            for (int x = 0; x < W_; ++x) {
-                u32& p = base_.px[static_cast<std::size_t>(y) * W_ + x];
-                p = mix(p, 0xFF05070Au, a) | 0xFF000000u;
-            }
-        }
-    }
+    build_wallpaper();
 
     if (!tasks_.load(opt_.datadir + "/apps", opt_.etcdir + "/services.d")) {
         std::fprintf(stderr, "difiw-desktop: no applications registered in %s/apps\n", opt_.datadir.c_str());
@@ -136,6 +168,8 @@ bool Desktop::init(const Options& opt) {
         enter_console_graphics();
         scan_devices();
     }
+    save_settings();  // also writes /run/difiw-lang, so apps start in the desktop's language
+    restore_session();
     tasks_.log("desktop started " + std::to_string(W_) + "x" + std::to_string(H_) + " scale=" + std::to_string(set_.scale));
     return true;
 }
@@ -384,7 +418,7 @@ Rect Desktop::content_of(const Window& w) const {
 void Desktop::clamp_window(Window& w) {
     const Rect f = frame_of(w);
     const Rect wa = work_area();
-    w.x = clampi(w.x, -f.w + S(80), W_ - S(80));
+    w.x = clampi(w.x, 0, std::max(0, W_ - f.w));
     w.y = clampi(w.y, 0, std::max(0, wa.h - title_h()));
 }
 
@@ -595,10 +629,19 @@ void Desktop::handle_client_msg(ClientConn& c, const Msg& m, int fd) {
         case C_REQUEST: {
             const AppDef* a = in ? tasks_.app(in->app_id) : nullptr;
             const int rq = m.i[0];
-            const char* need = rq == RQ_QUIT_DESKTOP ? "desktop.quit" : "power";
+            const char* need = rq == RQ_QUIT_DESKTOP ? "desktop.quit" : rq == RQ_SET ? "settings" : rq == RQ_NET ? "network" : "power";
             if (!a || !a->has_perm(need)) {
                 tasks_.log("permission denied app=" + (in ? in->app_id : std::string("?")) + " request=" + std::to_string(rq), true);
+                { const AppDef* da = in ? tasks_.app(in->app_id) : nullptr; notify((da ? da->name(set_.ru) : std::string("?")) + t(": request refused (no permission).", ": запрос отклонён (нет разрешения)."), true); }
                 Msg r; r.type = S_DENIED; r.i[0] = rq; send_to_client(c.fd, r);
+            } else if (rq == RQ_NET) {
+                const std::string kv = m.s;
+                const std::size_t sp = kv.find(' ');
+                if (sp != std::string::npos) net_action(kv.substr(0, sp), kv.substr(sp + 1));
+            } else if (rq == RQ_SET) {
+                const std::string kv = m.s;
+                const std::size_t eq = kv.find('=');
+                if (eq != std::string::npos) apply_kv(kv.substr(0, eq), kv.substr(eq + 1));
             } else if (rq == RQ_QUIT_DESKTOP) {
                 leave_desktop();
             } else if (rq == RQ_POWEROFF) {
@@ -613,7 +656,7 @@ void Desktop::handle_client_msg(ClientConn& c, const Msg& m, int fd) {
     if (fd >= 0) close(fd);
 }
 
-void Desktop::leave_desktop() { quit_ = true; exit_code_ = 0; }
+void Desktop::leave_desktop() { save_session(); quit_ = true; exit_code_ = 0; }
 
 void Desktop::do_power(bool rb) {
     tasks_.log(rb ? "reboot requested" : "power off requested");
@@ -675,7 +718,6 @@ static const char* popup_name(PopupKind k) {
         case PopupKind::Notify: return "notify";
         case PopupKind::Power: return "power";
         case PopupKind::Layout: return "layout";
-        case PopupKind::Settings: return "settings";
         case PopupKind::AppWindows: return "appwindows";
         case PopupKind::AppMenu: return "appmenu";
         case PopupKind::Confirm: return "confirm";
@@ -738,7 +780,6 @@ std::vector<std::string> Desktop::control(const std::string& line) {
                 break;
             }
         }
-        if (k == "settings") { close_all_popups(); open_popup(PopupKind::Settings, dock_d_rect()); }
         render();
         if (Popup* p = popups_.empty() ? nullptr : &popups_.back())
             out.push_back(std::string("popup ") + popup_name(p->kind) + " anchor=" + rect_str(p->anchor) + " rect=" + rect_str(p->rect));
@@ -838,13 +879,11 @@ std::vector<std::string> Desktop::control(const std::string& line) {
         out.push_back("ok");
     } else if (cmd == "set") {
         if (!need(3)) return out;
-        if (a[1] == "scale") set_.scale = std::atoi(a[2].c_str()) >= 2 ? 2 : 1;
-        else if (a[1] == "reduce") set_.reduce_motion = a[2] == "on";
-        else if (a[1] == "transparency") set_.transparency = a[2] != "off";
-        else if (a[1] == "lang") set_.ru = a[2] != "en";
-        else if (a[1] == "winkey") set_.winkey = a[2] == "on";
-        apply_settings();
-        out.push_back("ok");
+        out.push_back(apply_kv(a[1], a[2]) ? "ok" : "error: unknown setting");
+    } else if (cmd == "pin") {
+        if (!need(2)) return out;
+        if (tasks_.app(a[1])) { toggle_pin(a[1]); out.push_back(is_pinned(a[1]) ? "pinned" : "unpinned"); }
+        else out.push_back("error: no such app");
     } else if (cmd == "screen") {
         out.push_back(std::to_string(W_) + "x" + std::to_string(H_) + " scale=" + std::to_string(set_.scale));
     } else if (cmd == "log") {
@@ -857,6 +896,95 @@ std::vector<std::string> Desktop::control(const std::string& line) {
     }
     dirty_ = true;
     return out;
+}
+
+// One place that changes a setting: used by the control socket (difiwctl set ...) and by the Settings app (RQ_SET).
+bool Desktop::apply_kv(const std::string& k, const std::string& v) {
+    const bool on = v == "on" || v == "1";
+    if (k == "scale") { const int n = std::atoi(v.c_str()) >= 2 ? 2 : 1; if (n != set_.scale) close_all_popups(); set_.scale = n; }
+    else if (k == "reduce") set_.reduce_motion = on;
+    else if (k == "transparency") set_.transparency = v != "off" && v != "0";
+    else if (k == "lang") set_.ru = v != "en";
+    else if (k == "winkey") set_.winkey = on;
+    else if (k == "tips") set_.tips = v != "off" && v != "0";
+    else if (k == "menu") set_.menu_list = v == "list";
+    else if (k == "wallpaper" && !v.empty()) { set_.wallpaper = v; build_wallpaper(); }
+    else return false;
+    apply_settings();
+    return true;
+}
+
+bool Desktop::is_pinned(const std::string& id) const { return std::find(pinned_.begin(), pinned_.end(), id) != pinned_.end(); }
+
+void Desktop::toggle_pin(const std::string& id) {
+    const AppDef* a = tasks_.app(id);
+    if (is_pinned(id)) {
+        pinned_.erase(std::remove(pinned_.begin(), pinned_.end(), id), pinned_.end());
+        note_toast(t("Unpinned: ", "Откреплено: ") + (a ? a->name(set_.ru) : id));
+    } else {
+        pinned_.push_back(id);
+        if (std::find(dock_order_.begin(), dock_order_.end(), id) == dock_order_.end()) dock_order_.push_back(id);
+        note_toast(t("Pinned to the panel: ", "Закреплено в панели: ") + (a ? a->name(set_.ru) : id));
+    }
+    save_settings();
+    dirty_ = true;
+}
+
+// Leaving to the text console keeps the list of open apps; they come back when the desktop starts again.
+void Desktop::save_session() {
+    FILE* f = std::fopen((opt_.rundir + "/session").c_str(), "w");
+    if (!f) return;
+    for (const auto& in : tasks_.instances())
+        if (!in.wins.empty()) std::fprintf(f, "%s\n", in.app_id.c_str());
+    std::fclose(f);
+}
+
+void Desktop::restore_session() {
+    const std::string path = opt_.rundir + "/session";
+    std::ifstream f(path);
+    std::string id;
+    int n = 0;
+    while (std::getline(f, id)) {
+        if (id.empty() || !tasks_.app(id)) continue;
+        std::string err;
+        if (tasks_.launch(id, err) >= 0) ++n;
+    }
+    f.close();
+    unlink(path.c_str());
+    if (n) notify(t("Your open apps were restored.", "Открытые приложения восстановлены."));
+}
+
+// The first time an address appears (or changes) the user is told; no technical messages.
+void Desktop::check_network() {
+    std::string ip;
+    if (DIR* d = opendir("/sys/class/net")) {
+        const int fd = socket(AF_INET, SOCK_DGRAM, 0);
+        while (struct dirent* e = readdir(d)) {
+            if (e->d_name[0] == '.' || std::strcmp(e->d_name, "lo") == 0 || fd < 0) continue;
+            struct ifreq ifr;
+            std::memset(&ifr, 0, sizeof ifr);
+            std::strncpy(ifr.ifr_name, e->d_name, IFNAMSIZ - 1);
+            if (ioctl(fd, SIOCGIFADDR, &ifr) == 0) {
+                char b[32];
+                inet_ntop(AF_INET, &reinterpret_cast<struct sockaddr_in*>(&ifr.ifr_addr)->sin_addr, b, sizeof b);
+                ip = b;
+            }
+        }
+        if (fd >= 0) close(fd);
+        closedir(d);
+    }
+    if (ip != last_ip_) {
+        if (!ip.empty()) notify(t("Network connected: ", "Подключено к сети: ") + ip);
+        else if (!last_ip_.empty()) notify(t("Network connection lost.", "Сетевое подключение потеряно."), true);
+        last_ip_ = ip;
+    }
+}
+
+void Desktop::notify(const std::string& text, bool alert) {
+    notes_.push_back({now_ms(), text, alert});
+    if (notes_.size() > 60) notes_.erase(notes_.begin());
+    ++notify_unseen_;
+    dirty_ = true;
 }
 
 void Desktop::apply_settings() {
@@ -875,9 +1003,15 @@ void Desktop::apply_settings() {
 void Desktop::save_settings() {
     mkdir(opt_.etcdir.c_str(), 0755);
     FILE* f = std::fopen((opt_.etcdir + "/desktop.conf").c_str(), "w");
-    if (!f) return;
-    std::fprintf(f, "scale=%d\nreduce_motion=%d\ntransparency=%d\nlang=%s\nwinkey=%d\n", set_.scale, set_.reduce_motion ? 1 : 0, set_.transparency ? 1 : 0, set_.ru ? "ru" : "en", set_.winkey ? 1 : 0);
-    std::fclose(f);
+    if (f) {
+        std::string pins;
+        for (const auto& p : pinned_) pins += (pins.empty() ? "" : ",") + p;
+        std::fprintf(f, "scale=%d\nreduce_motion=%d\ntransparency=%d\nlang=%s\nwinkey=%d\ntips=%d\nmenu=%s\nwallpaper=%s\npinned=%s\n", set_.scale,
+                     set_.reduce_motion ? 1 : 0, set_.transparency ? 1 : 0, set_.ru ? "ru" : "en", set_.winkey ? 1 : 0, set_.tips ? 1 : 0,
+                     set_.menu_list ? "list" : "grid", set_.wallpaper.c_str(), pins.c_str());
+        std::fclose(f);
+    }
+    if (FILE* lf = std::fopen("/run/difiw-lang", "w")) { std::fputs(set_.ru ? "ru\n" : "en\n", lf); std::fclose(lf); }  // apps follow the language
 }
 
 // -------------------------------------------------------------------- main loop
@@ -946,12 +1080,14 @@ int Desktop::run() {
             const AppDef* a = tasks_.app(done.app_id);
             if (!done.closing && (done.exit_signal || done.exit_code)) {
                 note_toast((a ? a->name(set_.ru) : done.app_id) + t(" stopped unexpectedly", " неожиданно завершилось"));
+                notify((a ? a->name(set_.ru) : done.app_id) + t(" stopped unexpectedly.", " неожиданно завершилось."), true);
             }
             dirty_ = true;
         }
         tasks_.tick_kills(now);
         if (now - last_sample_ms_ >= tok::kTaskRefreshMs) { last_sample_ms_ = now; tasks_.sample(now); dirty_ = true; }
         if (toast_until_ && now > toast_until_) { toast_.clear(); toast_until_ = 0; dirty_ = true; }
+        if (now - last_ip_check_ms_ >= 3000) { last_ip_check_ms_ = now; check_network(); }
         // drop closed popups
         for (std::size_t i = 0; i < popups_.size();)
             if (popups_[i].closing && now - popups_[i].t_close > (set_.reduce_motion ? 0 : tok::kAnimPopup)) { popups_.erase(popups_.begin() + static_cast<std::ptrdiff_t>(i)); dirty_ = true; }

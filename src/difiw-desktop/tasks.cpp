@@ -215,6 +215,8 @@ void TaskModel::ensure_homes() {
     make_dir("/homes/user", 0711, 0, 0);
     make_dir("/homes/user/apps", 0711, 0, 0);
     make_dir("/run/difiw", 0755, 0, 0);
+    // one shared place that every app may use (documents, photos, recordings); sticky so apps cannot delete each other's files
+    for (const char* d : {"/homes/shared", "/homes/shared/Documents", "/homes/shared/Pictures", "/homes/shared/Recordings", "/homes/shared/Wallpapers", "/homes/shared/Downloads"}) make_dir(d, 01777, 0, 0);
     for (const auto& a : apps_) {
         make_dir(a.home, 0700, static_cast<uid_t>(a.uid), static_cast<gid_t>(a.uid));
         make_dir("/run/difiw/" + a.id, 0700, static_cast<uid_t>(a.uid), static_cast<gid_t>(a.uid));
@@ -233,6 +235,25 @@ void TaskModel::ensure_homes() {
     }
 }
 
+// Device nodes appear when hardware is detected, so the groups are applied right before an app that is allowed to use them
+// starts: apps with the "audio" permission get group 29 (sound), "camera" gets group 44 (video).
+static void grant_devices(bool audio, bool camera) {
+    if (geteuid() != 0) return;
+    auto grant = [](const std::string& dir, const char* prefix, gid_t gid) {
+        if (DIR* d = opendir(dir.c_str())) {
+            while (struct dirent* e = readdir(d)) {
+                if (e->d_name[0] == '.' || (*prefix && std::strncmp(e->d_name, prefix, std::strlen(prefix)) != 0)) continue;
+                const std::string p = dir + "/" + e->d_name;
+                if (chown(p.c_str(), 0, gid) != 0) {}
+                chmod(p.c_str(), 0660);
+            }
+            closedir(d);
+        }
+    };
+    if (audio) grant("/dev/snd", "", 29);
+    if (camera) grant("/dev", "video", 44);
+}
+
 int TaskModel::launch(const std::string& app_id, std::string& error) {
     const AppDef* a = app(app_id);
     if (!a) { error = "unknown app: " + app_id; return -1; }
@@ -247,6 +268,10 @@ int TaskModel::launch(const std::string& app_id, std::string& error) {
     in.token = random_token();
     in.start_ms = now_ms();
 
+    std::vector<gid_t> gids;
+    if (a->has_perm("audio")) gids.push_back(29);
+    if (a->has_perm("camera")) gids.push_back(44);
+    grant_devices(a->has_perm("audio"), a->has_perm("camera"));
     std::vector<std::string> argv_s = {a->exec};
     for (const auto& t : split(a->args, ' ')) argv_s.push_back(t);
 
@@ -258,7 +283,7 @@ int TaskModel::launch(const std::string& app_id, std::string& error) {
         for (int fd = 3; fd < 256; ++fd) close(fd);
         const std::string tmp = "/run/difiw/" + a->id + "/tmp";
         if (geteuid() == 0) {
-            if (setgroups(0, nullptr) != 0 || setgid(static_cast<gid_t>(a->uid)) != 0 || setuid(static_cast<uid_t>(a->uid)) != 0) _exit(126);
+            if (setgroups(gids.size(), gids.empty() ? nullptr : gids.data()) != 0 || setgid(static_cast<gid_t>(a->uid)) != 0 || setuid(static_cast<uid_t>(a->uid)) != 0) _exit(126);
             if (setuid(0) == 0) _exit(126);  // must not be able to regain root
         }
         prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);

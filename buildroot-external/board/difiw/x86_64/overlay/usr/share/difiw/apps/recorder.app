@@ -1,0 +1,10 @@
+id=recorder
+name=Voice Recorder
+name_ru=Диктофон
+category=utility
+icon=mic
+exec=/usr/bin/difiw-apps
+args=recorder
+uid=20011
+perms=audio
+hidden=0
