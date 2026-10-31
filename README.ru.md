@@ -22,6 +22,7 @@ Difiw OS загружается с одного ISO (BIOS, GRUB 2) в VirtualBox
 
 | Версия | Что внутри | Размер | Ссылка |
 |--------|------------|--------|--------|
+| **0.5.6** (dev) | Netline на Chromium (CEF), glibc, нужно 4 ГБ ОЗУ | 196 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.6-x86_64.iso) |
 | **0.5.5** | Последняя стабильная: поиск Яндекс в Netline, cookies | 36.0 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.5-x86_64.iso) |
 | **0.5.4** | Исправления поиска Netline | 30.0 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.4-x86_64.iso) |
 | **0.5.3** | Сетевая панель, устройства звука, Параметры | 30.0 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.3-x86_64.iso) |
@@ -54,7 +55,7 @@ Difiw OS загружается с одного ISO (BIOS, GRUB 2) в VirtualBox
 
 Горячие клавиши: `Ctrl+T` новая вкладка, `Ctrl+W` закрыть, `Ctrl+L` адрес, `Ctrl+R`/`F5` обновить, `Ctrl+Tab` следующая вкладка, `Ctrl+Shift+T` вернуть вкладку, `Ctrl+F` поиск, `Ctrl+D` закладка, `Ctrl+H` история, `Ctrl+J` загрузки, `Ctrl +/-` масштаб, `Ctrl+Shift+N` приватное окно.
 
-**Статус:** Netline запускается внутри ISO Difiw OS 0.5.6 (VirtualBox, 4 ГБ ОЗУ) и открывает реальные HTTPS-сайты с JavaScript. Движок и интерфейс также проверены на обычном Linux (WSL2) на локальном стенде и сайтах (ya.ru, yandex.ru, vk.com, github.com, youtube.com, ru.wikipedia.org). В ISO ещё не проверены: ввод с клавиатуры, звук и видео, замеры памяти/CPU, долгая работа — см. [docs/netline-test-results.md](docs/netline-test-results.md). Проприетарных кодеков (H.264/AAC) и DRM в сборке CEF нет, часть видео может не играть. ОС в этой ветке собрана на **glibc** (CEF бывает только для glibc), для ВМ нужно **не менее 4 ГБ ОЗУ**. ISO весит около 200 МБ — обычным git push его не загрузить, он будет опубликован как файл релиза.
+**Статус:** Netline запускается внутри ISO Difiw OS 0.5.6 (VirtualBox, 4 ГБ ОЗУ) и открывает реальные HTTPS-сайты с JavaScript. Движок и интерфейс также проверены на обычном Linux (WSL2) на локальном стенде и сайтах (ya.ru, yandex.ru, vk.com, github.com, youtube.com, ru.wikipedia.org). В ISO ещё не проверены: ввод с клавиатуры, звук и видео, замеры памяти/CPU, долгая работа — см. [docs/netline-test-results.md](docs/netline-test-results.md). Проприетарных кодеков (H.264/AAC) и DRM в сборке CEF нет, часть видео может не играть. ОС в этой ветке собрана на **glibc** (CEF бывает только для glibc), для ВМ нужно **не менее 4 ГБ ОЗУ**. ISO весит около 200 МБ и лежит в ветке `iso-releases` через Git LFS (скачивайте по ссылке из таблицы).
 
 Собрать и попробовать Netline на обычном Linux (SDL2):
 

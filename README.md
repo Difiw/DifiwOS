@@ -22,6 +22,7 @@ Pick a version and click **Download** (one file, no need to clone the repository
 
 | Version | What's inside | Size | Link |
 |---------|---------------|------|------|
+| **0.5.6** (dev) | Netline on Chromium (CEF), glibc, needs 4 GB RAM | 196 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.6-x86_64.iso) |
 | **0.5.5** | Latest stable: Yandex search in Netline, saved cookies | 36.0 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.5-x86_64.iso) |
 | **0.5.4** | Netline search fixes | 30.0 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.4-x86_64.iso) |
 | **0.5.3** | Network panel, sound devices, Settings pages | 30.0 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.3-x86_64.iso) |
@@ -54,7 +55,7 @@ Tabs, address bar, menu, bookmarks, history and downloads are drawn by Difiw its
 
 Shortcuts: `Ctrl+T` new tab, `Ctrl+W` close, `Ctrl+L` address bar, `Ctrl+R`/`F5` reload, `Ctrl+Tab` next tab, `Ctrl+Shift+T` reopen closed tab, `Ctrl+F` find, `Ctrl+D` bookmark, `Ctrl+H` history, `Ctrl+J` downloads, `Ctrl +/-` zoom, `Ctrl+Shift+N` private window.
 
-**Status:** Netline runs inside the Difiw OS 0.5.6 ISO (VirtualBox, 4 GB RAM) and opens real HTTPS sites with JavaScript. The engine and UI are also verified on a regular Linux desktop (WSL2) with a local test stand and sites (ya.ru, yandex.ru, vk.com, github.com, youtube.com, ru.wikipedia.org). Not yet tested inside the ISO: typing on the keyboard, sound/video, memory/CPU measurements, long-running stability; see [docs/netline-test-results.md](docs/netline-test-results.md). Proprietary codecs (H.264/AAC) and DRM are not part of the CEF build, so some video may not play. The OS in this branch is built on **glibc** (CEF exists for glibc only); give the VM **at least 4 GB of RAM**. The ISO is about 200 MB, too big for a plain git push; it will be published as a release asset.
+**Status:** Netline runs inside the Difiw OS 0.5.6 ISO (VirtualBox, 4 GB RAM) and opens real HTTPS sites with JavaScript. The engine and UI are also verified on a regular Linux desktop (WSL2) with a local test stand and sites (ya.ru, yandex.ru, vk.com, github.com, youtube.com, ru.wikipedia.org). Not yet tested inside the ISO: typing on the keyboard, sound/video, memory/CPU measurements, long-running stability; see [docs/netline-test-results.md](docs/netline-test-results.md). Proprietary codecs (H.264/AAC) and DRM are not part of the CEF build, so some video may not play. The OS in this branch is built on **glibc** (CEF exists for glibc only); give the VM **at least 4 GB of RAM**. The ISO is about 200 MB and is stored in the `iso-releases` branch with Git LFS (use the download link in the table).
 
 Build and try Netline on a normal Linux desktop (SDL2):
 
