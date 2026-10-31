@@ -26,6 +26,8 @@ set_target_properties(netline PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED O
 target_include_directories(netline PRIVATE ${CEF_ROOT})
 target_compile_options(netline PRIVATE -Wall -Wno-unused-parameter -fno-exceptions)
 target_link_libraries(netline libcef_dll_wrapper ${CEF_ROOT}/Release/libcef.so)
+# libcef.so wants versioned libudev symbols (LIBUDEV_183); libudev-zero is unversioned, so allow that at link time.
+target_link_options(netline PRIVATE -Wl,--allow-shlib-undefined)
 if(NETLINE_BACKEND STREQUAL "sdl")
   target_include_directories(netline PRIVATE ${SDL2_INCLUDE_DIRS})
   target_link_libraries(netline ${SDL2_LIBRARIES})

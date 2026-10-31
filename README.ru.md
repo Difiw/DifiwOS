@@ -48,11 +48,13 @@ Difiw OS загружается с одного ISO (BIOS, GRUB 2) в VirtualBox
 
 Вкладки, адресную строку, меню, закладки, историю и загрузки рисует сам Difiw; страницы отображает CEF в режиме off-screen.
 
-<img src="docs/screenshots/netline-newtab.png" alt="Стартовая страница Netline">
+<img src="docs/screenshots/netline-in-difiw-start.png" alt="Стартовая страница Netline в Difiw OS">
+
+<img src="docs/screenshots/netline-in-difiw-web.png" alt="Сайт в Netline внутри Difiw OS">
 
 Горячие клавиши: `Ctrl+T` новая вкладка, `Ctrl+W` закрыть, `Ctrl+L` адрес, `Ctrl+R`/`F5` обновить, `Ctrl+Tab` следующая вкладка, `Ctrl+Shift+T` вернуть вкладку, `Ctrl+F` поиск, `Ctrl+D` закладка, `Ctrl+H` история, `Ctrl+J` загрузки, `Ctrl +/-` масштаб, `Ctrl+Shift+N` приватное окно.
 
-**Статус:** движок и интерфейс проверены на обычном Linux (WSL2) на локальном стенде и реальных сайтах (ya.ru, yandex.ru, vk.com, github.com, youtube.com, ru.wikipedia.org). Запуск внутри ISO Difiw OS на glibc ещё проверяется — см. [docs/netline-test-results.md](docs/netline-test-results.md). Проприетарных кодеков (H.264/AAC) и DRM в сборке CEF нет, часть видео может не играть. ОС в этой ветке собрана на **glibc** (CEF бывает только для glibc), для ВМ нужно **не менее 4 ГБ ОЗУ**.
+**Статус:** Netline запускается внутри ISO Difiw OS 0.5.6 (VirtualBox, 4 ГБ ОЗУ) и открывает реальные HTTPS-сайты с JavaScript. Движок и интерфейс также проверены на обычном Linux (WSL2) на локальном стенде и сайтах (ya.ru, yandex.ru, vk.com, github.com, youtube.com, ru.wikipedia.org). В ISO ещё не проверены: ввод с клавиатуры, звук и видео, замеры памяти/CPU, долгая работа — см. [docs/netline-test-results.md](docs/netline-test-results.md). Проприетарных кодеков (H.264/AAC) и DRM в сборке CEF нет, часть видео может не играть. ОС в этой ветке собрана на **glibc** (CEF бывает только для glibc), для ВМ нужно **не менее 4 ГБ ОЗУ**. ISO весит около 200 МБ — обычным git push его не загрузить, он будет опубликован как файл релиза.
 
 Собрать и попробовать Netline на обычном Linux (SDL2):
 

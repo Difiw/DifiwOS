@@ -48,11 +48,13 @@ Pick a version and click **Download** (one file, no need to clone the repository
 
 Tabs, address bar, menu, bookmarks, history and downloads are drawn by Difiw itself; web pages are rendered by CEF in off-screen mode.
 
-<img src="docs/screenshots/netline-newtab.png" alt="Netline start page">
+<img src="docs/screenshots/netline-in-difiw-start.png" alt="Netline start page inside Difiw OS">
+
+<img src="docs/screenshots/netline-in-difiw-web.png" alt="A real website in Netline inside Difiw OS">
 
 Shortcuts: `Ctrl+T` new tab, `Ctrl+W` close, `Ctrl+L` address bar, `Ctrl+R`/`F5` reload, `Ctrl+Tab` next tab, `Ctrl+Shift+T` reopen closed tab, `Ctrl+F` find, `Ctrl+D` bookmark, `Ctrl+H` history, `Ctrl+J` downloads, `Ctrl +/-` zoom, `Ctrl+Shift+N` private window.
 
-**Status:** the engine and the UI are verified on a regular Linux desktop (WSL2) with a local test stand and real sites (ya.ru, yandex.ru, vk.com, github.com, youtube.com, ru.wikipedia.org). Running inside the Difiw OS ISO (glibc build) is still being verified, see [docs/netline-test-results.md](docs/netline-test-results.md). Proprietary codecs (H.264/AAC) and DRM are not part of the CEF build, so some video may not play. The OS in this branch is built on **glibc** (CEF exists for glibc only); give the VM **at least 4 GB of RAM**.
+**Status:** Netline runs inside the Difiw OS 0.5.6 ISO (VirtualBox, 4 GB RAM) and opens real HTTPS sites with JavaScript. The engine and UI are also verified on a regular Linux desktop (WSL2) with a local test stand and sites (ya.ru, yandex.ru, vk.com, github.com, youtube.com, ru.wikipedia.org). Not yet tested inside the ISO: typing on the keyboard, sound/video, memory/CPU measurements, long-running stability; see [docs/netline-test-results.md](docs/netline-test-results.md). Proprietary codecs (H.264/AAC) and DRM are not part of the CEF build, so some video may not play. The OS in this branch is built on **glibc** (CEF exists for glibc only); give the VM **at least 4 GB of RAM**. The ISO is about 200 MB, too big for a plain git push; it will be published as a release asset.
 
 Build and try Netline on a normal Linux desktop (SDL2):
 
