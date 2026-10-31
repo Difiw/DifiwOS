@@ -8,7 +8,7 @@
 
 🇬🇧 English · [🇷🇺 Русский](README.ru.md) · [📘 Manual (RU)](docs/manual.ru.md)
 
-![version](https://img.shields.io/badge/version-0.5.6_dev-orange) ![arch](https://img.shields.io/badge/arch-x86__64-555) ![license](https://img.shields.io/badge/license-MIT-green)
+![version](https://img.shields.io/badge/version-0.5.6-3d7bff) ![arch](https://img.shields.io/badge/arch-x86__64-555) ![license](https://img.shields.io/badge/license-MIT-green)
 
 </div>
 
@@ -22,7 +22,7 @@ Pick a version and click **Download** (one file, no need to clone the repository
 
 | Version | What's inside | Size | Link |
 |---------|---------------|------|------|
-| **0.5.6** (dev) | Netline on Chromium (CEF), glibc, needs 4 GB RAM | 196 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.6-x86_64.iso) |
+| **0.5.6** (latest) | Netline on Chromium (CEF), glibc, needs 4 GB RAM | 196 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.6-x86_64.iso) |
 | **0.5.5** | Latest stable: Yandex search in Netline, saved cookies | 36.0 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.5-x86_64.iso) |
 | **0.5.4** | Netline search fixes | 30.0 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.4-x86_64.iso) |
 | **0.5.3** | Network panel, sound devices, Settings pages | 30.0 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.3-x86_64.iso) |
@@ -32,8 +32,6 @@ Pick a version and click **Download** (one file, no need to clone the repository
 | **0.4.0** | Difiw Desktop (compositor, dock) | 24.0 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.4.0-x86_64.iso) |
 | **0.3.0** | Graphical shell, files/editor/terminal | 21.8 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.3.0-x86_64.iso) |
 | **0.2.0** | Difiw Shell, en/ru | 21.5 MB | [⬇ Download](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.2.0-x86_64.iso) |
-
-> 🚧 This is the **0.5.6** development branch (Netline on Chromium). The stable release is **0.5.5** in [`main`](../../tree/main); the 0.5.6 image will appear here once it passes testing.
 
 ## What you get
 
@@ -45,7 +43,7 @@ Pick a version and click **Download** (one file, no need to clone the repository
 
 ![Settings](docs/screenshots/053-p3-settings-net.png)
 
-## Netline browser (0.5.6)
+## Netline browser
 
 Tabs, address bar, menu, bookmarks, history and downloads are drawn by Difiw itself; web pages are rendered by CEF in off-screen mode.
 

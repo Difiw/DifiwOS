@@ -8,7 +8,7 @@
 
 [🇬🇧 English](README.md) · 🇷🇺 Русский · [📘 Руководство](docs/manual.ru.md)
 
-![version](https://img.shields.io/badge/версия-0.5.6_dev-orange) ![arch](https://img.shields.io/badge/arch-x86__64-555) ![license](https://img.shields.io/badge/лицензия-MIT-green)
+![version](https://img.shields.io/badge/версия-0.5.6-3d7bff) ![arch](https://img.shields.io/badge/arch-x86__64-555) ![license](https://img.shields.io/badge/лицензия-MIT-green)
 
 </div>
 
@@ -22,7 +22,7 @@ Difiw OS загружается с одного ISO (BIOS, GRUB 2) в VirtualBox
 
 | Версия | Что внутри | Размер | Ссылка |
 |--------|------------|--------|--------|
-| **0.5.6** (dev) | Netline на Chromium (CEF), glibc, нужно 4 ГБ ОЗУ | 196 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.6-x86_64.iso) |
+| **0.5.6** (latest) | Netline на Chromium (CEF), glibc, нужно 4 ГБ ОЗУ | 196 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.6-x86_64.iso) |
 | **0.5.5** | Последняя стабильная: поиск Яндекс в Netline, cookies | 36.0 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.5-x86_64.iso) |
 | **0.5.4** | Исправления поиска Netline | 30.0 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.4-x86_64.iso) |
 | **0.5.3** | Сетевая панель, устройства звука, Параметры | 30.0 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.5.3-x86_64.iso) |
@@ -32,8 +32,6 @@ Difiw OS загружается с одного ISO (BIOS, GRUB 2) в VirtualBox
 | **0.4.0** | Difiw Desktop (композитор, док) | 24.0 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.4.0-x86_64.iso) |
 | **0.3.0** | Графическая оболочка, файлы/редактор/терминал | 21.8 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.3.0-x86_64.iso) |
 | **0.2.0** | Difiw Shell, en/ru | 21.5 МБ | [⬇ Скачать](https://github.com/Difiw/DifiwOS/raw/iso-releases/difiw-os-0.2.0-x86_64.iso) |
-
-> 🚧 Это ветка разработки **0.5.6** (Netline на Chromium). Стабильная версия — **0.5.5** в ветке [`main`](../../tree/main); образ 0.5.6 появится здесь, когда пройдёт проверку.
 
 ## Что есть
 
@@ -45,7 +43,7 @@ Difiw OS загружается с одного ISO (BIOS, GRUB 2) в VirtualBox
 
 ![Параметры](docs/screenshots/053-p3-settings-net.png)
 
-## Браузер Netline (0.5.6)
+## Браузер Netline
 
 Вкладки, адресную строку, меню, закладки, историю и загрузки рисует сам Difiw; страницы отображает CEF в режиме off-screen.
 
